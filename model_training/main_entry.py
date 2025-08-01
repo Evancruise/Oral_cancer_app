@@ -331,7 +331,7 @@ def model_trainvaltest_process(optimizer_type="adam",
                         'model_state_dict': model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'loss': val_loss
-                    }, f"{model_dir}/mask2former_segmentation_{epoch+1}.pth")
+                    }, f"{model_dir}/mask2former_segmentation_epoch{epoch+1}.pth")
                 
         elif mode == "continue_train":
 
@@ -357,7 +357,7 @@ def model_trainvaltest_process(optimizer_type="adam",
                         'model_state_dict': model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'loss': val_loss
-                    }, f"{model_dir}/mask2former_segmentation_{epoch+1}.pth")
+                    }, f"{model_dir}/mask2former_segmentation_epoch{epoch+1}.pth")
 
         elif mode == "test":
             results = inference_maskrcnn_ema(model, test_dataloader, device, class_names=class_names, class_color_map=class_color_map, visualize=False, vis_save_dir=save_dir, conf_thresh=0.5)
