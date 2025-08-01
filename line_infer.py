@@ -6,7 +6,7 @@ import torch
 from flask import request
 from linebot.models import MessageEvent, ImageMessage, ImageSendMessage, TextSendMessage
 from linebot import LineBotApi
-from DINO_v2_self.model import YOLOv9_M4  # 可換成你的模型
+from model_training.model import YOLOv9_M4  # 可換成你的模型
 from app import draw_predictions, generate_prompt_response, transform_image_to_tensor
 import torch.nn.functional as F
 import torchvision.ops as ops
