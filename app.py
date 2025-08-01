@@ -38,6 +38,7 @@ import mlflow
 from threading import Thread
 from mlflow.tracking import MlflowClient
 import shutil
+from collections import defaultdict
 
 load_dotenv()
 
@@ -78,6 +79,12 @@ os.makedirs(ANNOT_DIR, exist_ok=True)
 os.makedirs(RESULT_DIR, exist_ok=True)
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(save_dir, exist_ok=True)
+
+model_list = defaultdict(list)
+model_list["yolov9"] = [model_name for model_name in os.listdir(MODEL_DIR) if model_name.startswith("yolov9")]
+model_list["mask2former"] = [model_name for model_name in os.listdir(MODEL_DIR) if model_name.startswith("mask2former")]
+model_list["unetr_moe"] = [model_name for model_name in os.listdir(MODEL_DIR) if model_name.startswith("unetr")]
+model_list["dinov2"] = [model_name for model_name in os.listdir(MODEL_DIR) if model_name.startswith("dinov2")]
 
 training_status = {
     "epoch": 1,
@@ -560,25 +567,16 @@ def model_test():
     if "cancel_inference" not in session:
         session["cancel_inference"] = False
 
-    if "image_name" not in session:
-        if not os.listdir(UPLOAD_DIR):
-            return render_template("model_test.html", img_path="", result_img_path="", image_index="", model_index="")
-        session["image_name"] = os.listdir(UPLOAD_DIR)[0]
+    #if "image_name" not in session:
+    #    session["image_name"] = os.listdir(UPLOAD_DIR)[0]
     
-    if "model_name" not in session:
-        session["model_name"] = None
-        if not os.listdir(MODEL_DIR):
-            return render_template("model_test.html", img_path="", result_img_path="", image_index="", model_index="")
-        session["model_name"] = os.listdir(MODEL_DIR)[0]
-    else:
-        session["model_name"] = request.form.get("model")
+    if "model_type" not in session:
+        session["model_type"] = "yolov9"
 
     return render_template(
         "model_test.html",
-        img_path="",
-        result_img_path="",
-        image_index=session["image_name"],
-        model_index=session["model_name"])
+        model_type=session["model_type"],
+        model_list=dict(model_list))
 
 def load_image_from_url(url):
     try:
@@ -653,9 +651,15 @@ def download_results_zip():
 @app.route("/start_inference")
 def start_inference():
 
-    if len(os.listdir(RESULT_DIR)) == 0:
+    model_name = request.form.get("model_name")
+    model_type = request.form.get("model_type")
+
+    if len(os.listdir(RESULT_DIR)) == 0 or not model_name or not model_type:
         return jsonify({"success": False})
-        
+    
+    session["model_name"] = model_name
+    session["model_type"] = model_type
+    
     model_trainvaltest_process(
         optimizer_type=session.get("optimizer_type", "adam"),
         lr=session.get("lr", 1e-4),
@@ -663,6 +667,7 @@ def start_inference():
         epochs=int(session.get("total_epochs", 10)),
         mode="inference",
         ml=session.get("ml", "dinov2"),
+        model_name=model_name,
         model_tuning_enable=session.get("model_tuning_enable", False),
         log_enable=session.get("tensorboard_enable", False),
         start_epoch=int(session.get("start_epoch", 0)),
@@ -835,8 +840,10 @@ def annotate():
 def list_models():
     try:
         models = [
-            f for f in os.listdir(MODEL_DIR)
-            if f.endswith(".pt") or f.endswith(".pth")
+            "yolov9",
+            "mask2former",
+            "unetr_moe",
+            "dinov2"
         ]
         return jsonify(models)
     except Exception as e:

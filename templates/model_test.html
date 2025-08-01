@@ -80,7 +80,14 @@
         <form method="POST" action="/inference" enctype="multipart/form-data" id="inferForm" class="mb-3">
           <div class="mb-3">
             <label for="modelSelect" class="form-label">目前使用模型</label>
-            <select id="modelSelect" name="model" class="form-select"></select>
+            <select id="modelSelect" name="model" class="form-select">
+            </select>
+            <div class="mb-3" id="modelversion" style="display: none;">
+              <label for="modelversionSelect" class="form-label"> 模型版本 </label>
+              <select id="modelversionSelect" name="model_version_select" class="form-select">
+
+              </select>
+            </div>
           </div>
 
           <div class="mb-3">
@@ -110,6 +117,7 @@
 
     let currentImage = "";
     let currentModel = "";
+    let modelList = {{ model_list | tojson }};
     let progressInterval = null;
     let polygons = [];
     let uploadedFilenames = [];
@@ -130,6 +138,29 @@
         });
     });
 
+    function updateModelVersionOptions() {
+      const modelSelect = document.getElementById("modelSelect");
+      const versionDiv = document.getElementById("modelversion");
+      const versionSelect = document.getElementById("modelversionSelect");
+
+      const selectedModel = modelSelect.value;
+      versionSelect.innerHTML = "";
+
+      if (modelList[selectedModel]) {
+        versionDiv.style.display = "block";
+        modelList[selectedModel].forEach(function (version) {
+          const option = document.createElement("option");
+          option.value = version;
+          option.textContent = version;
+          versionSelect.appendChild(option);
+        });
+      } else {
+        versionDiv.style.display = "none";
+      }
+    }
+
+    document.getElementById("modelSelect").addEventListener("change", updateModelVersionOptions);
+
     document.addEventListener("DOMContentLoaded", () => {
 
         const form = document.getElementById("inferForm");
@@ -138,9 +169,10 @@
 
           console.log("uploadedFilenames:", uploadedFilenames.length);
 
-          const model = document.getElementById("modelSelect").value;
+          const model_version = document.getElementById("modelversionSelect").value;
+          const model_type = document.getElementById("modelSelect").value;
 
-          if (model == "") {
+          if (model_version == "") {
             showModal("請選擇一組pretrained model做測試", () => {
             // OK 時執行
               console.log("使用者取消了操作");
@@ -174,7 +206,7 @@
 
           const payload = {
             filenames: uploadedFilenames,
-            model: model
+            model: model_version
           };
 
           xhr.onreadystatechange = function () {
@@ -190,7 +222,26 @@
                           console.log("按下 Cancel, 並已發送 /cancel_training");
                     }
                   );
-                  fetch("/start_inference");
+
+                  const formData = new FormData();
+                  formData.append("model_name", model_version);
+                  formData.append("model_type", model_type);
+
+                  fetch("/start_inference", {
+                    method: "POST",
+                    body: formData
+                  })
+                  .then(res => {})
+                  .then(data => {})
+                  .catch(err => {
+                      showModal("測試啟動失敗：" + err.message, () => {
+                      // OK 時執行
+                      console.log("使用者取消了操作");
+                    }, () => {
+                      // Cancel 時執行
+                      console.log("使用者取消了操作");
+                    });
+                  });
                   progressInterval = setInterval(fetchProgress, 2000);
                   fetchProgress();
               } else {
@@ -414,7 +465,7 @@
           sel.appendChild(opt);
         }
 
-        sel.value = "{{ model_index }}";
+        sel.value = "{{ model_type }}";
       });
 
     // Bind pic buttons
@@ -436,6 +487,7 @@
         });
     })
 
+    updateModelVersionOptions();
   </script>
   {% endblock %}
 </html>
