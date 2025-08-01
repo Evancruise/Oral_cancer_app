@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title> 首頁 </title>
+</head>
+<body>
+    {% extends "base.html" %}
+    {% block content %}
+    <h2> 歡迎使用 </h2>
+    {% if result %}
+    <p>辨識結果: {{ result }}</p>
+    {% endif %}
+    {% endblock %}
+</body>
+</html>

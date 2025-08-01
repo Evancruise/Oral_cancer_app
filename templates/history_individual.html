@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>使用者診斷紀錄 - {{ user_id }}</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      padding: 20px;
+      background: #f0f2f5;
+      color: #333;
+    }
+    h2 {
+      color: #2c3e50;
+      margin-bottom: 20px;
+    }
+
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 10px;
+      background: white;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    thead {
+      background-color: #409eff;
+      color: white;
+    }
+    th, td {
+      padding: 14px 16px;
+      text-align: left;
+      vertical-align: middle;
+      border-bottom: 1px solid #e0e6ed;
+    }
+    tbody tr:nth-child(even) {
+      background-color: #f9fbfd;
+    }
+    tbody tr:hover {
+      background-color: #dceeff;
+      cursor: pointer;
+    }
+
+    img.preview-image {
+      max-width: 120px;
+      max-height: 120px;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.1);
+      transition: transform 0.2s ease;
+    }
+    img.preview-image:hover {
+      transform: scale(1.05);
+    }
+
+    .back-button {
+      display: inline-block;
+      margin-top: 20px;
+      margin-right: 10px;
+      padding: 10px 18px;
+      background: #409eff;
+      color: white;
+      font-weight: 600;
+      text-decoration: none;
+      border-radius: 6px;
+      transition: background 0.3s ease;
+    }
+    .back-button:hover {
+      background: #267ac9;
+    }
+
+    /* Modal styles */
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 999;
+      padding-top: 60px;
+      left: 0; top: 0;
+      width: 100%; height: 100%;
+      overflow: auto;
+      background-color: rgba(0,0,0,0.8);
+      transition: opacity 0.3s ease;
+    }
+    .modal-content {
+      margin: auto;
+      display: block;
+      max-width: 90%;
+      max-height: 80vh;
+      border: 5px solid white;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(255,255,255,0.5);
+    }
+    .close {
+      position: absolute;
+      top: 20px;
+      right: 40px;
+      color: white;
+      font-size: 32px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .download-button {
+      position: absolute;
+      bottom: 30px;
+      right: 40px;
+      background: #28a745;
+      color: white;
+      padding: 10px 16px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: bold;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+    }
+    .download-button:hover {
+      background: #218838;
+    }
+
+    small {
+      display: block;
+      color: #888;
+      margin-top: 6px;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>🧾 使用者 <code>{{ user_id }}</code> 的歷史診斷紀錄</h2>
+
+  {% if records %}
+  <table>
+    <thead>
+      <tr>
+        <th>診斷圖片</th>
+        <th>模型</th>
+        <th>診斷結果</th>
+        <th>診斷時間</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for filename, model, result, timestamp in records %}
+      <tr>
+        <td>
+          <img src="{{ url_for('static', filename='results/' + filename) }}"
+               alt="診斷圖"
+               class="preview-image"
+               data-full="{{ url_for('static', filename='results/' + filename) }}">
+          <small>{{ filename }}</small>
+        </td>
+        <td>{{ model }}</td>
+        <td>{{ result }}</td>
+        <td>{{ timestamp }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <a class="back-button" href="{{ url_for('export_user_csv', user_id=user_id) }}">⬇ 匯出使用者 CSV</a>
+  {% else %}
+  <p>這位使用者目前尚無診斷紀錄。</p>
+  {% endif %}
+  <a class="back-button" href="{{ url_for('history') }}">← 返回所有使用者紀錄</a>
+
+  <!-- Modal -->
+  <div id="imageModal" class="modal" onclick="closeModal(event)">
+    <span class="close" onclick="closeModal(event)">✕</span>
+    <img class="modal-content" id="modalImg">
+    <a id="downloadBtn" href="#" download class="download-button" onclick="event.stopPropagation()">⬇ 下載圖片</a>
+  </div>
+
+  <script>
+    const modal = document.getElementById("imageModal");
+    const modalImg = document.getElementById("modalImg");
+    const downloadBtn = document.getElementById("downloadBtn");
+
+    document.querySelectorAll(".preview-image").forEach(img => {
+      img.addEventListener("click", () => {
+        const src = img.dataset.full;
+        modalImg.src = src;
+        downloadBtn.href = src;
+        modal.style.display = "block";
+      });
+    });
+
+    function closeModal(event) {
+      if (event.target.classList.contains("modal") || event.target.classList.contains("close")) {
+        modal.style.display = "none";
+      }
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") modal.style.display = "none";
+    });
+  </script>
+</body>
+</html>

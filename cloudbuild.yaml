@@ -1,0 +1,13 @@
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["build", "-t", "asia-east1-docker.pkg.dev/Oral-cancer-ai/oral-cancer-repo/oc-bot", "."]
+  - name: "gcr.io/cloud-builders/docker"
+    args: ["push", "asia-east1-docker.pkg.dev/Oral-cancer-ai/oral-cancer-repo/oc-bot"]
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    args:
+      - run
+      - deploy
+      - oral-ai-bot
+      - --image=asia-east1-docker.pkg.dev/Oral-cancer-ai/oral-cancer-repo/oc-bot
+      - --region=asia-east1
+      - --allow-unauthenticated

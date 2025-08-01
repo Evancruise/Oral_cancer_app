@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>所有使用者診斷紀錄</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      padding: 20px;
+      background: #f5f7fa;
+      color: #333;
+    }
+    
+    h2 {
+      color: #2c3e50;
+      margin-bottom: 15px;
+      user-select: none;
+    }
+    
+    form {
+      margin-bottom: 15px;
+    }
+    
+    input[type="text"] {
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1.5px solid #ccc;
+      font-size: 1rem;
+      width: 200px;
+      transition: border-color 0.3s ease;
+    }
+    
+    input[type="text"]:focus {
+      border-color: #409eff;
+      outline: none;
+    }
+    
+    button {
+      padding: 7px 16px;
+      border: none;
+      border-radius: 7px;
+      background-color: #409eff;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background-color 0.3s ease;
+      margin-left: 6px;
+      user-select: none;
+    }
+    
+    button:hover {
+      background-color: #267ac9;
+    }
+    
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 10px;
+      background: white;
+      box-shadow: 0 2px 8px rgb(0 0 0 / 0.1);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    
+    thead {
+      background-color: #409eff;
+      color: white;
+      user-select: none;
+    }
+    
+    th, td {
+      padding: 12px 15px;
+      text-align: left;
+      vertical-align: middle;
+      border-bottom: 1px solid #e1e8f0;
+    }
+    
+    tbody tr:nth-child(odd) {
+      background-color: #f9fbfd;
+    }
+    
+    tbody tr:hover {
+      background-color: #d6e4ff;
+      cursor: pointer;
+    }
+    
+    img {
+      max-width: 80px;
+      max-height: 80px;
+      border-radius: 6px;
+      box-shadow: 0 1px 4px rgb(0 0 0 / 0.12);
+      object-fit: cover;
+    }
+    
+    /* 連結樣式 */
+    a {
+      color: #409eff;
+      text-decoration: none;
+      font-weight: 600;
+    }
+    
+    a:hover {
+      text-decoration: underline;
+      color: #267ac9;
+    }
+  </style>
+</head>
+<body>
+  {% extends "base.html" %}
+  {% block content %}
+  <h2>🧾 所有使用者診斷紀錄總覽</h2>
+  {% if records %}
+    <form method="GET" action="{{ url_for('search_user') }}">
+      <label for="search">搜尋 user_id：</label>
+      <input type="text" name="user_id" id="search" required>
+      <button type="submit">搜尋</button>
+    </form>
+    <table>
+      <thead>
+        <tr>
+          <th>使用者ID</th>
+          <th>圖片</th>
+          <th>模型</th>
+          <th>診斷結果</th>
+          <th>時間</th>
+          <th>檢視</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for user_id, filename, model, result, timestamp in records %}
+        <tr>
+          <td>{{ user_id }}</td>
+          <td>
+            <img src="/history/" + filename, alt="Result image">
+            {{ filename }}
+          </td>
+          <td>{{ model }}</td>
+          <td>{{ result }}</td>
+          <td>{{ timestamp }}</td>
+          <td>
+            <a href="{{ url_for('history_individual', user_id=user_id) }}">檢視紀錄</a>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <form method="POST" action="{{ url_for('clear_records') }}" onsubmit="return confirm('確定要清除所有診斷紀錄嗎？這將無法復原！')">
+      <button type="submit" style="padding: 10px 20px; background-color: red; color: white; border: none; border-radius: 5px; font-weight: bold;">
+        🧹 清除所有診斷紀錄
+      </button>
+    </form>
+  {% else %}
+    <p>目前尚無任何診斷紀錄。</p>
+  {% endif %}
+  {% endblock %}
+</body>
+</html>

@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title> 模型測試頁 </title>
+
+  <!-- Bootstrap CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+  {% extends "base.html" %}
+  {% block content %}
+  <!-- Bootstrap 導覽列 -->
+  <div id="instruction-guide" style="margin-bottom: 30px;">
+
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container-fluid">
+      <a class="navbar-brand" href="#">🧠 模型測試平台</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+        aria-controls="navbarNav" aria-expanded="false" aria-label="切換導航">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="upload-tab" data-bs-toggle="tab" data-bs-target="#upload" type="button" role="tab" aria-controls="upload" aria-selected="true">
+              📤 上傳圖片
+            </button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="test-tab" data-bs-toggle="tab" data-bs-target="#test" type="button" role="tab" aria-controls="test" aria-selected="false">
+              🧪 測試模型
+            </button>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Tab 內容 -->
+  <div class="container mt-4">
+    <div class="tab-content">
+
+      <!-- 上傳圖片分頁 -->
+      <div class="tab-pane fade show active col-md-4 mb-4" id="upload" role="tabpanel" aria-labelledby="upload-tab">
+        <form id="uploadForm" enctype="multipart/form-data">
+          <h3>📸 請上傳八個口腔方位影像：</h3>
+          <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+            {% set parts = [
+              ("1", "上牙齦"),
+              ("2", "上顎"),
+              ("3", "右頰"),
+              ("4", "舌右"),
+              ("5", "舌左"),
+              ("6", "左頰"),
+              ("7", "舌下"),
+              ("8", "下牙齦")
+            ] %}
+
+            {% for code, label in parts %}
+            <div style="width: 140px; text-align: center;">
+              <img src="/static/guide/{{ code }}.png" alt="{{ label }}" style="width: 100%; border-radius: 6px; margin-bottom: 5px;">
+              <div style="font-size: 14px; font-weight: 500;">{{ label }}</div>
+              <!--<input type="file" name="{{ code }}" id="upload_{{ code }}" accept="image/*" required style="display: none;">-->
+              <input type="file" name="{{ code }}" id="upload_{{ code }}" style="display: none;">
+              <!-- 自訂選擇圖片按鈕 -->
+              <button type="button" id="SelectBtn_{{ code }}">選擇圖片</button>
+            </div>
+            {% endfor %}
+          </div>
+          <br>
+          <!-- 自訂選擇圖片按鈕 -->
+          <button type="submit" id="UploadBtn">上傳圖片</button>
+        </form>
+      </div>
+
+      <!-- 測試模型分頁 -->
+      <div class="tab-pane fade" id="test" role="tabpanel" aria-labelledby="test-tab">
+
+        <form method="POST" action="/inference" enctype="multipart/form-data" id="inferForm" class="mb-3">
+          <div class="mb-3">
+            <label for="modelSelect" class="form-label">目前使用模型</label>
+            <select id="modelSelect" name="model" class="form-select"></select>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">原圖與測試結果圖</label>
+            <div class="row" id="resultPreviewArea">
+              <!-- 這邊會用 JS 自動插入 8 張圖 -->
+            </div>
+          </div>
+
+          <!-- 你原本的按鈕保持 -->
+          <button type="button" id="downloadZipBtn" class="btn btn-outline-secondary">下載 ZIP</button>
+          <button type="submit" class="btn btn-success">測試模型</button>
+        </form>
+
+      </div>
+      <div id="modal-container"></div>
+      <div id="modal-container-loading"></div>
+    </div>
+  </div>
+  </body>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- Bootstrap JS Bundle (包含 Popper) -->
+  <script type="module">
+    import { showLoadingModal, loadModal, loadingModal, showModal, hideLoadingModal } from "{{ url_for('static', filename='js/modal.js') }}";
+    loadModal("modal-container");
+    loadModal("modal-container-loading");
+
+    let currentImage = "";
+    let currentModel = "";
+    let progressInterval = null;
+    let polygons = [];
+    let uploadedFilenames = [];
+    // 儲存推論完成後的結果圖 URLs
+    let currentResultURLs = [];
+
+    document.getElementById("downloadZipBtn").addEventListener("click", () => {
+      fetch("/download_results_zip")
+        .then(response => response.blob())
+        .then(blob => {
+          const url = window.URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = "results.zip";
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        });
+    });
+
+    document.addEventListener("DOMContentLoaded", () => {
+
+        const form = document.getElementById("inferForm");
+        form.addEventListener("submit", function (e) {
+          e.preventDefault();
+
+          console.log("uploadedFilenames:", uploadedFilenames.length);
+
+          const model = document.getElementById("modelSelect").value;
+
+          if (model == "") {
+            showModal("請選擇一組pretrained model做測試", () => {
+            // OK 時執行
+              console.log("使用者取消了操作");
+            }, () => {
+              // Cancel 時執行
+              console.log("使用者取消了操作");
+            });
+            return;
+          } else if (uploadedFilenames.length == 0) {
+            showModal("請至 '上傳圖片' 分頁載入圖片做測試", () => {
+            // OK 時執行
+              console.log("使用者取消了操作");
+            }, () => {
+              // Cancel 時執行
+              console.log("使用者取消了操作");
+            });
+            return;
+          }
+
+          /*
+          const formData = new FormData();
+          uploadedFilenames.forEach(filename => {
+            formData.append("filenames", filename);
+          });
+          formData.append("model", model);
+          */
+
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", "/inference", true);
+          xhr.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+
+          const payload = {
+            filenames: uploadedFilenames,
+            model: model
+          };
+
+          xhr.onreadystatechange = function () {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+              const res = JSON.parse(xhr.responseText);
+
+              if (res.success == true) {
+                  // 顯示 Loading
+                  // showLoadingModal();
+                  loadingModal(
+                    () => console.log("按下 OK"),
+                    () => {
+                          console.log("按下 Cancel, 並已發送 /cancel_training");
+                    }
+                  );
+                  fetch("/start_inference");
+                  progressInterval = setInterval(fetchProgress, 2000);
+                  fetchProgress();
+              } else {
+                if (res.message == "no file found") {
+                  showModal("請重新至 '上傳圖片' 分頁載入圖片做測試", () => {
+                    // OK 時執行
+                      console.log("使用者取消了操作");
+                  }, () => {
+                      // Cancel 時執行
+                      console.log("使用者取消了操作");
+                  });
+                } else if (res.message == "no model found") {
+                  showModal("請選擇一組pretrained model做測試", () => {
+                  // OK 時執行
+                    console.log("使用者取消了操作");
+                  }, () => {
+                    // Cancel 時執行
+                    console.log("使用者取消了操作");
+                  });
+                }
+              }
+            }
+          }
+
+          xhr.send(JSON.stringify(payload));
+        });
+    });
+
+    function fetchProgress() {
+        console.log("[定時] 呼叫 fetchProgress");
+
+        fetch("/inferencing")
+            .then(res => res.json())
+            .then(data => {
+                console.log("data:", data);
+                const success = data.success;
+                const message = data.message;
+                const result_img_urls = data.result_img_urls;
+                const current_index = data.current_index;
+                const total_num_imgs = data.total_num_imgs;
+
+                document.getElementById("progressText-inference").innerText = `${current_index} / ${total_num_imgs}`;
+                
+                if (success == true && message == "inference complete" && progressInterval != null) {
+                    console.log("偵測到 finished");
+                    hideLoadingModal();
+                    clearInterval(progressInterval);
+                    progressInterval = null;
+
+                    const imagePairs = [];
+
+                    for (let i = 0; i < data.filenames.length; i++) {
+                      imagePairs.push({
+                        original: `/static/uploads/${data.filenames[i]}`,
+                        result: result_img_urls[i]
+                      });
+                    }                
+                
+                    renderAllResults(imagePairs, 1);
+
+                    showModal("推論完成！", () => {
+                    // OK 時執行
+                      console.log("使用者取消了操作");
+                    }, () => {
+                      // Cancel 時執行
+                      console.log("使用者取消了操作");
+                    });
+                } else if (success == false && message == "no file found") {
+                    showModal("請重新至 '上傳圖片' 分頁載入圖片做測試", () => {
+                    // OK 時執行
+                      console.log("使用者取消了操作");
+                    }, () => {
+                      // Cancel 時執行
+                      console.log("使用者取消了操作");
+                    });
+                }
+            })
+            .catch(err => {
+                console.error("[fetchProgress 錯誤]", err);
+            });
+    }
+
+    document.getElementById("uploadForm").addEventListener("submit", function (e) {
+        e.preventDefault();
+
+        const form = e.target;
+        const formData = new FormData();
+
+        // 八個部位對應的 name
+        const parts = ["1", "2", "3", "4", "5", "6", "7", "8"];
+        let allSelected = true;
+
+        parts.forEach(code => {
+          const input = document.getElementById("upload_" + code);
+          console.log(input.files[0]);
+
+          if (!input || input.files.length === 0) {
+            allSelected = false;
+          } else {
+            formData.append(code, input.files[0]);  // 加入單一檔案（每個部位一張）
+          }
+        });
+
+        console.log("formData:", formData);
+
+        if (!allSelected) {
+          showModal("請選擇所有八個方位的圖片！", () => {
+          // OK 時執行
+            console.log("使用者取消了操作");
+          }, () => {
+            // Cancel 時執行
+            console.log("使用者取消了操作");
+          });
+          return;
+        }
+
+        fetch("/upload_multi", {
+          method: "POST",
+          body: formData
+          })
+          .then(res => res.json())
+          .then(data => {
+
+            uploadedFilenames = data.filenames;  // 儲存 filenames 陣列（['a.jpg', ..., 'h.jpg']）
+
+            showModal("上傳成功，共上傳 " + Object.keys(data.filenames).length + " 張", () => {
+                // OK 時執行
+                const imagePairs = [];
+
+                for (let i = 0; i < data.filenames.length; i++) {
+                  imagePairs.push({
+                    original: `/static/uploads/${data.filenames[i]}`,
+                    result: data.result_img_urls[i]
+                  });
+                }                
+                
+                renderAllResults(imagePairs, 0);
+            }, () => {
+                // Cancel 時執行
+                console.log("使用者取消了操作");
+            });
+
+            // 自動切換至 Test 分頁
+            const testTab = new bootstrap.Tab(document.getElementById('test-tab'));
+            testTab.show();
+          })
+          .catch(err => {
+            showModal("上傳失敗：" + err.message, () => {
+            // OK 時執行
+              console.log("使用者取消了操作");
+            }, () => {
+              // Cancel 時執行
+              console.log("使用者取消了操作");
+            });
+          });
+    });
+
+    function renderAllResults(imagePairs, inference_mode) {
+      const resultArea = document.getElementById("resultPreviewArea");
+      resultArea.innerHTML = ""; // 清空舊的
+
+      imagePairs.forEach((pair, index) => {
+        const col = document.createElement("div");
+        col.className = "col-md-3 mb-4"; // 每行 4 張圖（可調整）
+
+        if (inference_mode == false) {
+          col.innerHTML = `
+            <div class="card">
+              <div class="card-body p-2">
+                <h6 class="card-title text-center mb-2">第 ${index + 1} 張</h6>
+                <div class="d-flex flex-column align-items-center">
+                  <img src="${pair.original}" alt="原圖 ${index + 1}" class="img-fluid mb-2" style="max-height: 120px;">
+                </div>
+              </div>
+            </div>
+          `;
+        } else {
+          col.innerHTML = `
+            <div class="card">
+              <div class="card-body p-2">
+                <h6 class="card-title text-center mb-2">第 ${index + 1} 張</h6>
+                <div class="d-flex flex-column align-items-center">
+                  <img src="${pair.result}" alt="結果圖 ${index + 1}" class="img-fluid border border-success" style="max-height: 120px;">
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        resultArea.appendChild(col);
+      });
+    }
+
+    function clearResultImg() {
+      resultImg.src = "";
+      resultImg.style.display = "none";
+    }
+
+    function loadImage(filename) {
+      const img = new Image();
+      img.onload = () => {
+        fetch('/load_annotation/' + filename)
+          .then(res => res.json())
+          .then(data => {
+            polygons = data;
+          });
+      };
+      img.src = `/static/uploads/${filename}`;
+    }
+
+    // 初始化載入模型列表跟圖片列表
+    fetch('/models')
+      .then(res => res.json())
+      .then(models => {
+        const sel = document.getElementById('modelSelect');
+        sel.innerHTML = "";
+        for (let model of models) {
+          let opt = document.createElement('option');
+          opt.value = model;
+          opt.innerText = model;
+          sel.appendChild(opt);
+        }
+
+        sel.value = "{{ model_index }}";
+      });
+
+    // Bind pic buttons
+    const partCodes = ["1", "2", "3", "4", "5", "6", "7", "8"];
+    partCodes.forEach(code => {
+        const btn = document.getElementById("SelectBtn_" + code);
+        const input = document.getElementById("upload_" + code);
+
+        btn.addEventListener("click", () => {
+          input.click();
+        });
+
+        input.addEventListener("change", () => {
+          if (input.files && input.files[0]) {
+            btn.innerText = "已選擇";
+            btn.style.backgroundColor = "#28a745";
+            btn.style.color = "white";
+          }
+        });
+    })
+
+  </script>
+  {% endblock %}
+</html>
