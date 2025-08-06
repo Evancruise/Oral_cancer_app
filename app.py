@@ -2,13 +2,13 @@ from flask import Flask, render_template, request, redirect, session, url_for, j
 # from openai_helper import generate_diagnosis
 # from openai import OpenAI
 # from DINO_v2.inference import infer_single_image_for_web
-from model_training.model import YOLOv9_M4, DINOv2TokenSegmentation, UNETR_MoE_CLIP_RCNN
-from model_training.config import Config
-from model_training.utils import export_prediction
-from model_training.main_entry import model_trainvaltest_process
+from model_archive.model import YOLOv9_M4, DINOv2TokenSegmentation, UNETR_MoE_CLIP_RCNN
+from model_archive.config import Config
+from model_archive.utils import export_prediction
+from model_archive.main_entry import model_trainvaltest_process
 from torchvision import transforms as T
 from PIL import Image
-from model_training.generate_anno import reshuffle_datasets
+from model_archive.generate_anno import reshuffle_datasets
 # from linebot import LineBotApi, WebhookHandler
 # from linebot.exceptions import InvalidSignatureError
 # from linebot.models import MessageEvent, TextMessage, TextSendMessage, ImageMessage, ImageSendMessage, TemplateSendMessage, ButtonsTemplate, PostbackAction, PostbackEvent
@@ -141,7 +141,6 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id TEXT NOT NULL,
             filename TEXT NOT NULL,
-            model TEXT NOT NULL,
             result TEXT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
@@ -167,12 +166,12 @@ def clear_records():
         print(f"發生錯誤: {str(e)}", "error")
     return redirect(url_for("history_init"))
 
-def save_record(user_id, filename, modelname, result):
+def save_record(user_id, filename, result):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO records (user_id, filename, modelname, result, timestamp) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
-        (user_id, filename, modelname, result)
+        "INSERT INTO records (user_id, filename, result, timestamp) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+        (user_id, filename, result)
     )
     conn.commit()
     conn.close()
@@ -244,7 +243,7 @@ def query_user_latest_record(user_id):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT filename, model, result, timestamp FROM records WHERE user_id=? ORDER BY timestamp DESC LIMIT 1",
+        "SELECT filename, result, timestamp FROM records WHERE user_id=? ORDER BY timestamp DESC LIMIT 1",
         (user_id,)
     )
     row = cursor.fetchone()
@@ -252,9 +251,8 @@ def query_user_latest_record(user_id):
     if row:
         return {
             "filename": row[0],
-            "model": row[1],
-            "result": row[2],
-            "timestamp": row[3]
+            "result": row[1],
+            "timestamp": row[2]
         }
     else:
         return None
