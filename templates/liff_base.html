@@ -1,0 +1,1422 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <title> 醫快拍 </title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+</head>
+<body>
+    <!-- 側邊選單 -->
+    <div class="sidebar">
+        <div class="user-info">
+            <p>臺大醫院影像醫學部</p>
+            <img src="https://cdn-icons-png.flaticon.com/512/850/850960.png" alt="icon" class="user-icon">
+        </div>
+        <ul class="menu">
+            <li><i class="fas fa-home"></i> <a class="nav-link {{ 'active' if request.path == '/login' else '' }}" href="/login"> 首頁</a></li>
+            <li><i class="fas fa-history"></i> <a class="nav-link {{ 'active' if request.path == '/history' else '' }}" href="/history"> 病歷紀錄</a></li>
+            <li><i class="fas fa-trash"></i> 垃圾桶</li>
+            <li><i class="fas fa-key"></i> 快速密碼變更</li>
+            <li><i class="fas fa-link"></i> 重新綁定</li>
+            <li><i class="fas fa-sign-out-alt"></i> <a class="nav-link" href="/logout">登出</a></li>
+        </ul>
+        <div class="version">ver 1.0</div>
+    </div>
+
+    <!-- 主內容區 -->
+    <main>
+        {% block content %}
+        {% endblock %}
+    </main>
+
+    <div id="modal-container"></div>
+    <div id="modal-container-loading"></div>
+
+    <!-- Bootstrap script -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script type="module">
+        import { logUploadedFiles, bindImageUploadPreview, bindImageResultPreview, showLoadingModal, loadModal, loadingModal, showModal, hideLoadingModal } from "{{ url_for('static', filename='js/modal.js') }}";
+        loadModal("modal-container");
+        loadModal("modal-container-loading");
+
+        document.addEventListener("DOMContentLoaded", function () {
+            const parts = [
+                ["1", "上牙齦"],
+                ["2", "上顎"],
+                ["3", "右頰"],
+                ["4", "舌右"],
+                ["5", "舌左"],
+                ["6", "左頰"],
+                ["7", "舌下"],
+                ["8", "下牙齦"]
+            ];
+            const icons = document.querySelectorAll(".rotate-icon");
+            const add_form = document.getElementById("add_form");
+            const edit_form = document.getElementById("edit_form");
+            const result_form = document.getElementById("result_form");
+            const add_modal = document.getElementById("newRecordModal");
+            const edit_modal = document.getElementById("editRecordModal");
+            const result_modal = document.getElementById("resultRecordModal");
+            const record_link = document.querySelectorAll(".record-link");
+            let current_patient_id = "";
+            let clickedButton = null;
+            const patient_ids = {{ all_patient_ids | default([]) | tojson }};
+            const patientStatusMap = {};
+
+            if (edit_form) {
+                bindImageUploadPreview(parts, edit_form);
+                logUploadedFiles(edit_form);
+            }
+
+            if (add_form) {
+                bindImageUploadPreview(parts, add_form);
+                logUploadedFiles(add_form);
+            }
+
+            if (result_form) {
+                bindImageResultPreview(parts, result_form);
+                logUploadedFiles(result_form);
+            }
+
+            if (add_modal) {
+                add_modal.addEventListener("hidden.bs.modal", () => {
+                    console.log("✌️ Edit Modal 已關閉");
+
+                    // 👉 自訂行為，例如清空欄位、重設 collapse 狀態、圖片 preview 等
+                    if (add_modal) {
+                        const modal = bootstrap.Modal.getInstance(add_modal); // 取得已存在的 modal 實例
+                        if (modal) {
+                            modal.hide(); // 隱藏
+                        }
+                    }
+                });
+            }
+
+            if (edit_modal) {
+                edit_modal.addEventListener("hidden.bs.modal", () => {
+                    console.log("✌️ Edit Modal 已關閉");
+
+                    // 👉 自訂行為，例如清空欄位、重設 collapse 狀態、圖片 preview 等
+                    if (edit_modal) {
+                        const modal = bootstrap.Modal.getInstance(edit_modal); // 取得已存在的 modal 實例
+                        if (modal) {
+                            modal.hide(); // 隱藏
+                        }
+                    }
+                });
+            }
+
+            if (result_modal) {
+                result_modal.addEventListener("hidden.bs.modal", () => {
+                    console.log("✌️ Edit Modal 已關閉");
+
+                    // 👉 自訂行為，例如清空欄位、重設 collapse 狀態、圖片 preview 等
+                    if (result_modal) {
+                        const modal = bootstrap.Modal.getInstance(result_modal); // 取得已存在的 modal 實例
+                        if (modal) {
+                            modal.hide(); // 隱藏
+                        }
+                    }
+                });
+            }
+
+            function updateIconForPatient(pid, status) {
+                const iconContainer = document.getElementById(`icon-${pid}`);
+                if (!iconContainer) return;
+
+                let iconHtml = '';
+                switch (status) {
+                    case 'in_progress':
+                        iconHtml = '<i class="fas fa-spinner fa-spin text-warning"></i>';
+                        break;
+                    case 'done':
+                        iconHtml = '<i class="fas fa-check-circle text-success"></i>';
+                        break;
+                    case "failed":
+                        iconHtml = '<i class="fas fa-clock text-secondary"></i>';
+                        break;
+                    default:
+                        iconHtml = '<i class="fas fa-camera"></i>';
+                        break;
+                }
+                iconContainer.innerHTML = iconHtml;
+            }
+
+            async function checkInferenceForPatients(patient_ids) {
+                for (const pid of patient_ids) {
+
+                    if (patientStatusMap[pid] === 'done' || patientStatusMap[pid] === 'failed') {
+                        continue;
+                    }
+
+                    try {
+                        const res1 = await fetch(`/record/check_inference/${pid}`);
+                        const data1 = await res1.json();
+                        console.log(`${pid} →`, data1.status);
+
+                        patientStatusMap[pid] = data1.status;
+
+                        updateIconForPatient(pid, data1.status);
+                    } catch (err) {
+                        console.error(`Error cehcking inference for ${pid}:`, err);
+                    }
+                }
+            }
+
+            document.querySelectorAll('.section-toggle').forEach(toggle => {
+                toggle.addEventListener('click', function () {
+                    const icon = this.querySelector('.rotate-icon');
+                    const isExpanded = this.getAttribute('aria-expanded') === 'true';
+                    icon.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(180deg)';
+                });
+            });
+
+            document.querySelectorAll("#add_form button[type=submit]").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    clickedButton = btn;
+                });
+            });
+
+            document.querySelectorAll("#edit_form button[type=submit]").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    clickedButton = btn;
+                });
+            });
+
+            document.querySelectorAll("#result_form button[type=submit]").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    console.log("result_form tag triggered!");
+                    clickedButton = btn;
+                });
+            });
+
+            if (record_link) {
+                record_link.forEach(link => {
+                    link.addEventListener("click", function () {
+                        const modal = document.getElementById("editRecordModal");
+                        console.log("this.dataset:", this.dataset);
+                        modal.querySelector("input[name='name']").value = this.dataset.name;
+                        modal.querySelector("select[name='gender']").value = this.dataset.gender;
+                        modal.querySelector("input[name='age']").value = this.dataset.age;
+                        modal.querySelector("input[name='patient_id']").value = this.dataset.patient_id;
+                        /*
+                        modal.querySelector("input[name='pic1']").value = this.dataset.pic1;
+                        modal.querySelector("input[name='pic2']").value = this.dataset.pic2;
+                        modal.querySelector("input[name='pic3']").value = this.dataset.pic3;
+                        modal.querySelector("input[name='pic4']").value = this.dataset.pic4;
+                        modal.querySelector("input[name='pic5']").value = this.dataset.pic5;
+                        modal.querySelector("input[name='pic6']").value = this.dataset.pic6;
+                        modal.querySelector("input[name='pic7']").value = this.dataset.pic7;
+                        modal.querySelector("input[name='pic8']").value = this.dataset.pic8;
+                        */
+                        modal.querySelector("textarea[name='notes']").value = this.dataset.notes;
+
+                        modal.querySelector(`#preview_1`).src = this.dataset.pic1;
+                        modal.querySelector(`#preview_2`).src = this.dataset.pic2;
+                        modal.querySelector(`#preview_3`).src = this.dataset.pic3;
+                        modal.querySelector(`#preview_4`).src = this.dataset.pic4;
+                        modal.querySelector(`#preview_5`).src = this.dataset.pic5;
+                        modal.querySelector(`#preview_6`).src = this.dataset.pic6;
+                        modal.querySelector(`#preview_7`).src = this.dataset.pic7;
+                        modal.querySelector(`#preview_8`).src = this.dataset.pic8;
+
+                        // 加入 record_id hidden 欄位（或使用 query 參數）
+                        const hiddenInput = document.createElement("input");
+                        hiddenInput.type = "hidden";
+                        hiddenInput.name = "record_id";
+                        hiddenInput.value = this.dataset.record_id;
+                        modal.querySelector("form").appendChild(hiddenInput);
+                    });
+                });
+            }
+
+            icons.forEach(icon => {
+                const targetId = icon.dataset.target;
+                const target = document.querySelector(targetId);
+
+                // 初始化狀態
+                if (target && !target.classList.contains("show")) {
+                    icon.classList.remove("rotate");
+                } else {
+                    icon.classList.add("rotate");
+                }
+
+                // 綁定 collapse 動畫事件
+                const collapseElement = new bootstrap.Collapse(target, { toggle: false });
+
+                target.addEventListener("show.bs.collapse", function () {
+                    icon.classList.add("rotate");
+                });
+                target.addEventListener("hide.bs.collapse", function () {
+                    icon.classList.remove("rotate");
+                });
+            });
+
+            if (edit_form) {
+
+                edit_form.addEventListener("submit", async function(e) {
+                    e.preventDefault();
+
+                    if (clickedButton && clickedButton.value === "save") {
+                        console.log("使用者點了開始編輯病歷");
+
+                        const formData = new FormData(edit_form);
+
+                        if (clickedButton && clickedButton.name) {
+                            formData.append(clickedButton.name, clickedButton.value);
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+
+                            if (!value instanceof File && !value.name) {
+                                showModal("請填妥所有必要欄位", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                                break;
+                            }
+
+                            if (key === "patient_id") {
+                                current_patient_id = value;
+                            }
+                        }
+
+                        try {
+
+                            if (!current_patient_id) {
+                                showModal("找不到病歷 ID，無法啟動推論", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                                return;
+                            }
+
+                            const res_edit = await fetch(`/record/edit/{{ user_id }}`, {
+                                method: "POST",
+                                body: formData
+                            });
+
+                            const data_edit = await res_edit.json();
+                            console.log("data:", data_edit);
+
+                            if (!data_edit || !data_edit.status) {
+                                throw new Error("回傳格式錯誤");
+                                return;
+                            }
+
+                            if (data_edit.status === "ok") {
+
+                                const modalElement = document.getElementById('newRecordModal');
+                                if (modalElement) {
+                                    const modal = bootstrap.Modal.getInstance(modalElement); // 取得已存在的 modal 實例
+                                    if (modal) {
+                                        modal.hide(); // 隱藏
+                                    }
+                                }
+
+                                showModal("編輯病歷成功", () => {
+                                    console.log("使用者點擊 OK");
+                                    window.location.href = data_edit.redirect;
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                            } else {
+
+                                if (data.message === "request token changed") {
+                                    showModal("使用者請求遭拒，請再試一次", () => {
+                                        console.log("使用者點擊 OK");
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                }
+                            }
+                        } catch (err) {
+                            console.log("發生錯誤");
+                        }
+                    } else if (clickedButton && clickedButton.value === "delete") {
+                        console.log("使用者點了刪除病歷");
+
+                        const formData = new FormData(edit_form);
+
+                        if (clickedButton && clickedButton.name) {
+                            formData.append(clickedButton.name, clickedButton.value);
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+
+                            if (!value instanceof File && !value.name) {
+                                showModal("請填妥所有必要欄位", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                                break;
+                            }
+
+                            if (key === "patient_id") {
+                                current_patient_id = value;
+                            }
+                        }
+
+                        try {
+
+                            if (!current_patient_id) {
+                                showModal("找不到病歷 ID，無法啟動推論", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                                return;
+                            }
+
+                            const res_edit1 = await fetch(`/record/delete/{{ user_id }}/${current_patient_id}`, {
+                                method: "POST",
+                                body: formData
+                            });
+
+                            const data_edit1 = await res_edit1.json();
+                            console.log("data:", data_edit1);
+
+                            if (!data_edit1 || !data_edit1.status) {
+                                throw new Error("回傳格式錯誤");
+                                return;
+                            }
+
+                            if (data_edit1.status === "ok") {
+
+                                showModal("刪除病歷成功", () => {
+                                    console.log("使用者點擊 OK");
+                                    window.location.href = data_edit1.redirect;
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                            } else {
+
+                                if (data.message === "request token changed") {
+                                    showModal("使用者請求遭拒，請再試一次", () => {
+                                        console.log("使用者點擊 OK");
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                } else {
+                                    showModal("刪除病例失敗，請再試一次", () => {
+                                        console.log("使用者點擊 OK");
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                }
+                            }
+                        } catch (err) {
+                            console.log("發生錯誤");
+                        }
+                    } else if (clickedButton && clickedButton.value === "infer") {
+                        // let missing = [];
+                        let uploadedFilenames = [];
+
+                        const formData = new FormData(edit_form);
+
+                        if (clickedButton && clickedButton.name) {
+                            formData.append(clickedButton.name, clickedButton.value);
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+
+                            if (!value instanceof File && !value.name) {
+                                showModal("請填妥所有必要欄位", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                                break;
+                            }
+
+                            if (key === "patient_id") {
+                                current_patient_id = value;
+                            }
+                        }
+
+                        /*
+                        parts.forEach(([code, label]) => {
+                            
+                            const input = edit_form.querySelector(`#upload_${code}`);
+
+                            console.log(`input #upload_${code}:`, input);
+
+                            if (!input.files || input.files.length === 0) {
+                                missing.push(code);
+                            } else {
+                                uploadedFilenames.push(input.files[0].name);
+                            }
+                        });
+
+                        if (missing.length > 0) {
+                            showModal("請上傳所有部位影像", () => {
+                                // OK 時執行
+                                console.log("使用者取消了操作");
+                            }, () => {
+                                // Cancel 時執行
+                                console.log("使用者取消了操作");
+                            });
+                            return;
+                        }
+                        */
+
+                        try {
+                            if (!current_patient_id) {
+                                showModal("找不到病歷 ID，無法啟動推論");
+                                return;
+                            }
+
+                            const res_edit2 = await fetch(`/record/edit/{{ user_id }}`, {
+                                method: "POST",
+                                body: formData
+                            });
+
+                            const data_edit2 = await res_edit2.json();
+                            console.log("data:", data_edit2);
+
+                            if (!data_edit2 || !data_edit2.status) {
+                                throw new Error("回傳格式錯誤");
+                                return;
+                            }
+
+                            if (data_edit2.status === "ok" && data_edit2.redirect) {
+
+                                fetch(`/record/trigger_infer_process/${current_patient_id}`)
+                                .then(response => {
+                                    if (response.status === 202) {
+                                        console.log("Inference started in background.");
+
+                                        const modalElement = document.getElementById('editRecordModal');
+                                        if (modalElement) {
+                                            const modal = bootstrap.Modal.getInstance(modalElement);
+                                            if (modal) {
+                                                modal.hide();
+                                            }
+                                        }
+
+                                        loadingModal("模型推論中，請稍後...",
+                                            () => {
+                                                const editModalEl = edit_modal;
+                                                const editModal = new bootstrap.Modal(editModalEl);
+                                                editModal.show();
+                                            },
+                                            () => {
+                                                const editModalEl = edit_modal;
+                                                const editModal = new bootstrap.Modal(editModalEl);
+                                                editModal.show();
+                                                console.log("按下 Cancel, 並已發送 /cancel_training");
+                                            }, current_patient_id
+                                            , true
+                                        );
+                                    } else {
+                                        console.error("Unexpected response:", response.status);
+                                        return;
+                                    }
+                                });
+
+                                const res_edit3 = await fetch(`/record/start_inference/${current_patient_id}`, {
+                                    method: "POST",
+                                    body: formData
+                                });
+
+                                const data_edit3 = await res_edit3.json()
+
+                                if (!data_edit3 || !data_edit3.status) {
+                                    throw new Error("回傳格式錯誤");
+                                    return;
+                                }
+
+                                if (data_edit3.status === "done") {
+                                    const pollingInterval = 3000;
+                                    const maxRetries = 60;
+                                    let attempts = 0;
+
+                                    const intervalId = setInterval(async () => {
+                                        try {
+                                            const res_edit4 = await fetch(`/record/check_inference/${current_patient_id}`, {
+                                                method: "GET"
+                                            });
+
+                                            const data_edit4 = await res_edit4.json();
+                                            const message = data_edit4.message;
+                                            const status = data_edit4.status;
+                                            const percent = Math.min(data_edit4.progress, 100);
+
+                                            console.log(`第 ${attempts + 1} 次查詢，狀態: ${status}, 訊息: ${message}`);
+
+                                            if (percent > 0) {
+                                                
+                                                const modal = document.getElementById("modal-container-loading");
+                                                if (modal) {
+                                                    const progressBar = modal.querySelector("#progressBar");
+                                                    if (progressBar) {
+                                                        progressBar.style.width = `${percent}%`;
+                                                        progressBar.innerText = `${percent}%`;
+                                                    }
+                                                }
+                                            }
+
+                                            // 辨識完成就停止輪詢
+                                            if (status === "done") {
+
+                                                hideLoadingModal();
+
+                                                clearInterval(intervalId);
+                                                showModal("辨識完成：" + message, () => {
+                                                    window.location.href = data_edit2.redirect;
+                                                    console.log("使用者點擊 OK");
+                                                }, () => {
+                                                    window.location.href = data_edit2.redirect;
+                                                    console.log("使用者點擊 Cancel");
+                                                });
+                                                // 你可以在這裡加入後續處理邏輯（例如顯示結果）
+                                                return;
+
+                                            } else if (status === "error") {
+
+                                                hideLoadingModal();
+
+                                                showModal("辨識失敗：" + message, () => {
+                                                    console.log("使用者點擊 OK");
+                                                }, () => {
+                                                    console.log("使用者點擊 Cancel");
+                                                });
+                                                return;
+                                            }
+
+                                            // 如果超過最大次數還沒完成，就停止
+                                            if (++attempts >= maxRetries) {
+                                                clearInterval(intervalId);
+                                                showModal("辨識逾時，請稍後再試", () => {
+                                                    console.log("使用者點擊 OK");
+                                                }, () => {
+                                                    console.log("使用者點擊 Cancel");
+                                                });
+                                            }
+                                        } catch (pollErr) {
+                                            clearInterval(intervalId);
+                                            showModal("輪詢過程出錯：" + pollErr.message, () => {
+                                                console.log("使用者點擊 OK");
+                                            }, () => {
+                                                console.log("使用者點擊 Cancel");
+                                            });
+                                        }
+                                    }, pollingInterval);
+                                } else {
+                                    if (data_edit3.message === "FileFoundEmpty") {
+                                        showModal("請上傳所有部位影像", () => {
+                                            // OK 時執行
+                                            console.log("使用者取消了操作");
+                                        }, () => {
+                                            // Cancel 時執行
+                                            console.log("使用者取消了操作");
+                                        });
+                                        return;
+                                    }
+                                }
+                            } 
+                        } catch (err) {
+                            showModal("推論啟動失敗：" + err.message, () => {
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                console.log("使用者點擊 Cancel");
+                            });
+                        }
+                    } else if (clickedButton && clickedButton.value === "check_result") {
+
+                        const formData = new FormData(edit_form);
+
+                        if (clickedButton && clickedButton.name) {
+                            formData.append(clickedButton.name, clickedButton.value);
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+
+                            if (!value instanceof File && !value.name) {
+                                showModal("請填妥所有必要欄位", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                                break;
+                            }
+
+                            if (key === "patient_id") {
+                                current_patient_id = value;
+                            }
+                        }
+
+                        openResultModal(edit_modal, formData, true);
+
+                        const pollingInterval = 3000; // 每 3 秒查一次
+                        const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
+                        let attempts = 0;
+
+                        const intervalId = setInterval(async () => {
+                            try {
+                                const res_edit5 = await fetch(`/record/retrieve_results/${current_patient_id}`, {
+                                    method: "GET"
+                                });
+
+                                const data_edit5 = await res_edit5.json();
+
+                                if (data_edit5.message === "not found") {
+                                    showModal(`沒有此病患的辨識結果資料 (id=${current_patient_id})`, () => {
+                                        console.log("使用者點擊 OK");
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                } else {
+                                    const record_dict = data_edit5.record_dict;
+
+                                    const fields = [1, 2, 3, 4, 5, 6, 7, 8];
+                                    fields.forEach((i) => {
+                                        if (result_modal && record_dict[`img${i}`]) {
+                                            result_modal.querySelector(`#upload_${i}`).src = record_dict[`img${i}`];
+                                        }
+                                    });
+                                }
+
+                                // 如果超過最大次數還沒完成，就停止
+                                if (++attempts >= maxRetries) {
+                                    clearInterval(intervalId);
+                                    showModal("辨識逾時，請稍後再試", () => {
+                                        console.log("使用者點擊 OK");
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                }
+                            } catch(pollErr) {
+                                clearInterval(intervalId);
+                                showModal("輪詢過程出錯：" + pollErr.message, () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                            }
+                        }, pollingInterval);
+
+                        return;
+                    }
+
+                    clickedButton = null; // reset
+                });
+
+                bindImageUploadPreview(parts, edit_form);
+            }
+
+            if (add_form) {
+                add_form.addEventListener("submit", async function(e) {
+                    e.preventDefault();
+
+                    if (clickedButton && clickedButton.value === "create") {
+                        console.log("使用者點了開始建立病歷");
+
+                        const formData = new FormData(add_form);
+
+                        if (clickedButton && clickedButton.name) {
+                            formData.append(clickedButton.name, clickedButton.value);
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+
+                            if (!value instanceof File && !value.name) {
+                                showModal("請填妥所有必要欄位", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                                break;
+                            }
+
+                            if (key === "patient_id") {
+                                current_patient_id = value;
+                            }
+                        }
+
+                        try {
+                            const res_add = await fetch(`/record/new/{{ user_id }}`, {
+                                method: "POST",
+                                body: formData
+                            });
+
+                            const data_add = await res_add.json();
+                            console.log("data:", data_add);
+
+                            if (!data_add || !data_add.status) {
+                                throw new Error("回傳格式錯誤");
+                                return;
+                            }
+
+                            if (data_add.status === "ok") {
+
+                                const modalElement = document.getElementById('newRecordModal');
+                                if (modalElement) {
+                                    const modal = bootstrap.Modal.getInstance(modalElement); // 取得已存在的 modal 實例
+                                    if (modal) {
+                                        modal.hide(); // 隱藏
+                                    }
+                                }
+
+                                showModal("建立病歷成功", () => {
+                                    console.log("使用者點擊 OK");
+                                    window.location.href = data_add.redirect;
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                            } else {
+
+                                if (data_add.message === "patient id existed") {
+                                    showModal("建立病歷失敗，請再試一次 (使用者patient id重複)", () => {
+                                        console.log("使用者點擊 OK");
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                } else if (data_add.message === "request token changed") {
+                                    showModal("使用者請求遭拒，請再試一次", () => {
+                                        console.log("使用者點擊 OK");
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                }
+                            }
+                        } catch (err) {
+                            console.log("發生錯誤");
+                        }
+                    } else if (clickedButton && clickedButton.value === "infer") {
+                        //let missing = [];
+                        let uploadedFilenames = [];
+
+                        const formData = new FormData(add_form);
+
+                        if (clickedButton && clickedButton.name) {
+                            formData.append(clickedButton.name, clickedButton.value);
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+
+                            if (!value instanceof File && !value.name) {
+                                showModal("請填妥所有必要欄位", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                                break;
+                            }
+
+                            if (key === "patient_id") {
+                                current_patient_id = value;
+                            }
+                        }
+
+                        /*
+                        parts.forEach(([code, label]) => {
+                            
+                            const input = add_form.querySelector(`#upload_${code}`);
+
+                            console.log(`input #upload_${code}:`, input);
+
+                            if (!input.files || input.files.length === 0) {
+                                missing.push(code);
+                            } else {
+                                uploadedFilenames.push(input.value);
+                            }
+                        });
+
+                        if (missing.length > 0) {
+                            showModal("請上傳所有部位影像", () => {
+                                // OK 時執行
+                                console.log("使用者取消了操作");
+                            }, () => {
+                                // Cancel 時執行
+                                console.log("使用者取消了操作");
+                            });
+                            return;
+                        }
+                        */
+
+                        try {
+                            // 1. 送出 POST 請求開始推論
+
+                            if (!current_patient_id) {
+                                showModal("找不到病歷 ID，無法啟動推論");
+                                return;
+                            }
+
+                            const res_add1 = await fetch(`/record/new/{{ user_id }}`, {
+                                method: "POST",
+                                body: formData
+                            });
+
+                            const data_add1 = await res_add1.json();
+                            console.log("data:", data_add1);
+
+                            if (!data_add1 || !data_add1.status) {
+                                throw new Error("回傳格式錯誤");
+                                return;
+                            }
+
+                            if (data_add1.status === "ok" && data_add1.redirect) {
+
+                                fetch(`/record/trigger_infer_process/${current_patient_id}`)
+                                .then(response => {
+                                    if (response.status === 202) {
+                                        console.log("Inference started in background.");
+
+                                        /*
+                                        const modalElement1 = document.getElementById('newRecordModal');
+                                        if (modalElement1) {
+                                            const modal1 = bootstrap.Modal.getInstance(modalElement1);
+                                            if (modal1) {
+                                                modal1.hide();
+                                            }
+                                        }
+
+                                        const modalElement2 = document.getElementById('editRecordModal');
+                                        if (modalElement2) {
+                                            const modal2 = bootstrap.Modal.getInstance(modalElement2);
+                                            if (modal2) {
+                                                modal2.hide();
+                                            }
+                                        }
+
+                                        const modalElement3 = document.getElementById('addRecordModal');
+                                        if (modalElement3) {
+                                            const modal3 = bootstrap.Modal.getInstance(modalElement3);
+                                            if (modal3) {
+                                                modal3.hide();
+                                            }
+                                        }
+                                        */
+
+                                        loadingModal("模型推論中，請稍後...",
+                                            () => {
+                                                const addModalEl = add_modal;
+                                                const addModal = new bootstrap.Modal(addModalEl);
+                                                addModal.show();
+                                            },
+                                            () => {
+                                                const addModalEl = add_modal;
+                                                const addModal = new bootstrap.Modal(addModalEl);
+                                                addModal.show();
+                                                console.log("按下 Cancel, 並已發送 /cancel_training");
+                                            }, current_patient_id
+                                            , true
+                                        );
+                                    } else {
+                                        console.error("Unexpected response:", response.status);
+                                        return;
+                                    }
+                                });
+
+                                const res_add2 = await fetch(`/record/start_inference/${current_patient_id}`, {
+                                    method: "POST",
+                                    body: formData
+                                });
+
+                                const data_add2 = await res_add2.json();
+                                console.log("data:", data_add2);
+
+                                if (!data_add2 || !data_add2.status) {
+                                    throw new Error("回傳格式錯誤");
+                                    return;
+                                }
+
+                                if (data_add2.status === "done") {
+                                    const pollingInterval = 3000; // 每 3 秒查一次
+                                    const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
+                                    let attempts = 0;
+
+                                    const intervalId = setInterval(async () => {
+                                        try {
+                                            const res_add3 = await fetch(`/record/check_inference/${current_patient_id}`, {
+                                                method: "GET"
+                                            });
+
+                                            const data_add3 = await res_add3.json();
+                                            const message = data_add3.message;
+                                            const status = data_add3.status;
+                                            const percent = data_add3.progress;
+
+                                            if (percent > 0) {
+                                                const modal = document.getElementById("loadingModal");
+                                                if (modal) {
+                                                    const progressBar = modal.querySelector("#progressBar");
+                                                    if (progressBar) {
+                                                        progressBar.style.width = `${percent}%`;
+                                                        progressBar.innerText = `${percent}%`;
+                                                    }
+                                                }
+                                            }
+
+                                            console.log(`第 ${attempts + 1} 次查詢，狀態: ${status}, 訊息: ${message}`);
+
+                                            // 辨識完成就停止輪詢
+                                            if (status === "done") {
+
+                                                hideLoadingModal();
+
+                                                clearInterval(intervalId);
+                                                showModal("辨識完成：" + message, () => {
+                                                    console.log("使用者點擊 OK");
+                                                    window.location.href = data_add1.redirect;
+                                                }, () => {
+                                                    console.log("使用者點擊 Cancel");
+                                                    window.location.href = data_add1.redirect;
+                                                });
+                                                // 你可以在這裡加入後續處理邏輯（例如顯示結果）
+                                                return;
+
+                                            } else if (status === "error") {
+
+                                                hideLoadingModal();
+
+                                                showModal("辨識失敗：" + message, () => {
+                                                    console.log("使用者點擊 OK");
+                                                }, () => {
+                                                    console.log("使用者點擊 Cancel");
+                                                });
+                                                return;
+                                            }
+
+                                            // 如果超過最大次數還沒完成，就停止
+                                            if (++attempts >= maxRetries) {
+                                                clearInterval(intervalId);
+                                                showModal("辨識逾時，請稍後再試", () => {
+                                                    console.log("使用者點擊 OK");
+                                                }, () => {
+                                                    console.log("使用者點擊 Cancel");
+                                                });
+                                            }
+                                        } catch (pollErr) {
+                                            clearInterval(intervalId);
+                                            showModal("輪詢過程出錯：" + pollErr.message, () => {
+                                                console.log("使用者點擊 OK");
+                                            }, () => {
+                                                console.log("使用者點擊 Cancel");
+                                            });
+                                        }
+                                    }, pollingInterval);
+                                } else {
+                                    if (data_add2.message === "FileFoundEmpty") {
+                                        showModal("請上傳所有部位影像", () => {
+                                            // OK 時執行
+                                            console.log("使用者取消了操作");
+                                        }, () => {
+                                            // Cancel 時執行
+                                            console.log("使用者取消了操作");
+                                        });
+                                        return;
+                                    }
+                                }
+                            }
+                        } catch (err) {
+                            showModal("推論啟動失敗：" + err.message, () => {
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                console.log("使用者點擊 Cancel");
+                            });
+                        }
+                    } else if (clickedButton && clickedButton.value === "check_result") {
+
+                        const formData = new FormData(add_form);
+
+                        if (clickedButton && clickedButton.name) {
+                            formData.append(clickedButton.name, clickedButton.value);
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+
+                            if (!value instanceof File && !value.name) {
+                                showModal("請填妥所有必要欄位", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                                break;
+                            }
+
+                            if (key === "patient_id") {
+                                current_patient_id = value;
+                            }
+                        }
+
+                        openResultModal(add_modal, formData, true);
+
+                        const pollingInterval = 3000; // 每 3 秒查一次
+                        const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
+                        let attempts = 0;
+
+                        const intervalId = setInterval(async () => {
+                            try {
+                                const res_add4 = await fetch(`/record/retrieve_results/${current_patient_id}`, {
+                                    method: "GET"
+                                });
+
+                                const data_add4 = await res_add4.json();
+
+                                if (data_add4.message === "not found") {
+                                    clearInterval(intervalId);
+                                    showModal(`沒有此病患的辨識結果資料 (id=${current_patient_id})`, () => {
+                                        console.log("使用者點擊 OK");
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                } else {
+                                    const record_dict = data_add4.record_dict;
+
+                                    const fields = [1, 2, 3, 4, 5, 6, 7, 8];
+                                    fields.forEach((i) => {
+                                        if (result_modal && record_dict[`img${i}`]) {
+                                            result_modal.querySelector(`#upload_${i}`).src = record_dict[`img${i}`];
+                                        }
+                                    });
+                                }
+
+                                // 如果超過最大次數還沒完成，就停止
+                                if (++attempts >= maxRetries) {
+                                    clearInterval(intervalId);
+                                    showModal("辨識逾時，請稍後再試", () => {
+                                        console.log("使用者點擊 OK");
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                }
+                            } catch(pollErr) {
+                                clearInterval(intervalId);
+                                showModal("輪詢過程出錯：" + pollErr.message, () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                            }
+                        }, pollingInterval);
+
+                        return;
+                    }
+
+                    clickedButton = null; // reset
+                });
+
+                bindImageUploadPreview(parts, add_form);
+            }
+
+            if (result_form) {
+                result_form.addEventListener("submit", async function(e) {
+                    e.preventDefault();
+
+                    if (clickedButton && clickedButton.value === "upload") {
+
+                        const formData = new FormData(result_form);
+
+                        if (clickedButton && clickedButton.name) {
+                            formData.append(clickedButton.name, clickedButton.value);
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+
+                            if (!value instanceof File && !value.name) {
+                                showModal("請填妥所有必要欄位", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                                break;
+                            }
+
+                            if (key === "patient_id") {
+                                current_patient_id = value;
+                            }
+                        }
+
+                        openResultModal(result_modal, formData, false);
+
+                        const pollingInterval = 3000; // 每 3 秒查一次
+                        const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
+                        let attempts = 0;
+                        
+                        try {
+                            const res_result = await fetch("/record/result/{{ user_id }}", {
+                                method: "POST",
+                                body: formData
+                            });
+                            const data_result = await res_result.json();
+                            
+                            if (!data_result && !data_result.status) {
+                                throw new Error("上傳影像發生錯誤");
+                                return;
+                            }
+
+                            if (data_result.status === "ok") {
+
+                                const resultModal = new bootstrap.Modal(result_modal);
+                                if (resultModal) {
+                                    resultModal.hide();
+                                }
+
+                                loadingModal("上傳影像中，請稍後...", 
+                                () => {
+                                    resultModal.show();
+                                },
+                                () => {
+                                    resultModal.show();
+                                    console.log("按下 Cancel, 並已發送 /cancel_training");
+                                }, null
+                                , false);
+
+                                const intervalId = setInterval(async () => {
+                                    try {
+                                        const res_result1 = await fetch(`/record/upload_result/${current_patient_id}`, {
+                                            method: "GET"
+                                        });
+
+                                        const data_result1 = await res_result1.json();
+
+                                        if (data_result1.status === "done") {
+                                            clearInterval(intervalId);
+
+                                            hideLoadingModal();
+
+                                            showModal(`上傳影像完成 (patient id: ${current_patient_id})`, () => {
+                                                console.log("使用者點擊 OK");
+                                                // window.location.href = data_result1.redirect;
+                                            }, () => {
+                                                console.log("使用者點擊 Cancel");
+                                            });
+                                            
+                                        } else if (data_result1.status === "failed") {
+                                            clearInterval(intervalId);
+
+                                            hideLoadingModal();
+
+                                            showModal(`上傳影像失敗，錯誤訊息: ${data_result1.message}`, () => {
+                                                console.log("使用者點擊 OK");
+                                            }, () => {
+                                                console.log("使用者點擊 Cancel");
+                                            });
+                                            return;
+                                        }
+                                    } catch (pollErr) {
+                                        clearInterval(intervalId);
+
+                                        hideLoadingModal();
+
+                                        showModal("輪詢過程出錯：" + pollErr.message, () => {
+                                            console.log("使用者點擊 OK");
+                                        }, () => {
+                                            console.log("使用者點擊 Cancel");
+                                        });
+                                    }
+                                }, pollingInterval);
+                            } else {
+
+                                hideLoadingModal();
+
+                                showModal("上傳過程出錯", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                            }
+                        } catch(err) {
+                            console.error("發生錯誤：", err);
+                            showModal("發送過程出錯！", () => {
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                console.log("使用者點擊 Cancel");
+                            });
+                        }
+                    }
+
+                    clickedButton = null; // reset
+                });
+                bindImageResultPreview(parts, result_form);
+            }
+
+            function startPolling(patient_ids, interval = 3000) {
+                setInterval(() => checkInferenceForPatients(patient_ids), interval);
+            }
+
+            function openResultModal(current_modal, formData, next_result_page = false) {
+
+                const currentModal = bootstrap.Modal.getInstance(current_modal);
+                if (currentModal) currentModal.hide();
+
+                const pollingInterval = 3000; // 每 3 秒查一次
+                const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
+                let attempts = 0;
+
+                const prev_modal = result_modal.querySelector("#btnGoBack");
+                if (prev_modal) {
+                    
+                    if (next_result_page) {
+                        setTimeout(() => {
+                        const resultModalEl = result_modal;
+                        const resultModal = new bootstrap.Modal(resultModalEl);
+                        resultModal.show();}, 400);
+                    }
+
+                    prev_modal.addEventListener("click", () => {
+                        const currentModal = bootstrap.Modal.getInstance(result_modal);
+                        if (currentModal) currentModal.hide();
+
+                        setTimeout(() => {
+                            const newModal = new bootstrap.Modal(current_modal);
+                            newModal.show();
+                        }, 400);
+                        
+                    });
+                }
+
+                // const upload_modal = result_modal.querySelector("#upload");
+
+                /*
+                if (upload_modal) {
+                    upload_modal.addEventListener("click", () => {
+                        const currentModal = bootstrap.Modal.getInstance(result_modal);
+                        if (currentModal) currentModal.hide();
+
+                        setTimeout(() => {
+                            const newModal = new bootstrap.Modal(current_modal);
+                            newModal.show();
+                        }, 400);
+                        
+                    });
+                }
+                */
+
+                /*
+                if (upload_modal) {
+                    upload_modal.addEventListener("click", async function(e) {
+
+                        const pollingInterval = 3000; // 每 3 秒查一次
+                        const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
+                        let attempts = 0;
+                        
+                        const res_result = await fetch("/record/result/{{ user_id }}", {
+                            method: "POST",
+                            body: formData
+                        });
+                        const data_result = await res_result.json();
+
+                        if (!data_result && !data_result.status) {
+                            throw new Error("上傳影像發生錯誤");
+                            return;
+                        }
+
+                        if (data_result.status === "ok") {
+                            const intervalId = setInterval(async () => {
+                                try {
+                                    const res_result1 = await fetch(`/record/upload_result/${current_patient_id}`, {
+                                        method: "GET"
+                                    });
+
+                                    const data_result1 = await res_result1.json();
+
+                                    if (data_result1.status === "done") {
+                                        clearInterval(intervalId);
+
+                                        showModal("上傳影像完成", () => {
+                                            console.log("使用者點擊 OK");
+                                            window.location.href = data_result1.redirect;
+                                        }, () => {
+                                            console.log("使用者點擊 Cancel");
+                                        });
+                                        
+                                    } else if (data_result1.status === "failed") {
+                                        clearInterval(intervalId);
+
+                                        showModal(`上傳影像失敗，錯誤訊息: ${data_result1.message}`, () => {
+                                            console.log("使用者點擊 OK");
+                                        }, () => {
+                                            console.log("使用者點擊 Cancel");
+                                        });
+                                        return;
+                                    }
+                                } catch (pollErr) {
+                                    clearInterval(intervalId);
+                                    showModal("輪詢過程出錯：" + pollErr.message, () => {
+                                        console.log("使用者點擊 OK");
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                }
+                            }, pollingInterval);
+                        } else {
+                            showModal("上傳過程出錯", () => {
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                console.log("使用者點擊 Cancel");
+                            });
+                        }
+                    });
+                }
+                */
+
+                const intervalId = setInterval(async () => {
+                    try {
+                        const res_add6 = await fetch(`/record/retrieve_results/${current_patient_id}`, {
+                            method: "GET"
+                        });
+
+                        const data_add6 = await res_add6.json();
+
+                        if (data_add6.message === "not found") {
+                            clearInterval(intervalId);
+                            showModal(`沒有此病患的辨識結果資料 (id=${current_patient_id})`, () => {
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                console.log("使用者點擊 Cancel");
+                            });
+                        } else {
+                            const record_dict = data_add6.record_dict;
+
+                            const fields = [1, 2, 3, 4, 5, 6, 7, 8];
+                            fields.forEach((i) => {
+                                const img = document.getElementById(`upload_${i}`);
+                                if (img && record_dict[`img${i}`]) {
+                                    img.src = record_dict[`img${i}`];
+                                }
+                            });
+                        }
+
+                        // 如果超過最大次數還沒完成，就停止
+                        if (++attempts >= maxRetries) {
+                            clearInterval(intervalId);
+                            showModal("辨識逾時，請稍後再試", () => {
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                console.log("使用者點擊 Cancel");
+                            });
+                        }
+                    } catch(pollErr) {
+                        clearInterval(intervalId);
+                        showModal("輪詢過程出錯：" + pollErr.message, () => {
+                            console.log("使用者點擊 OK");
+                        }, () => {
+                            console.log("使用者點擊 Cancel");
+                        });
+                    }
+                }, pollingInterval);
+            }
+
+            startPolling(patient_ids);
+        });
+    </script>
+</body>
+</html>

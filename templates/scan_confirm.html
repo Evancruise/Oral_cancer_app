@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>確認登入</title>
+  <script>
+    function confirmLogin() {
+      fetch(location.pathname, {
+        method: 'POST'
+      }).then(res => res.json())
+        .then(data => {
+          if (data.success) {
+            document.getElementById("result").innerText = "✅ 登入成功，請回到電腦畫面";
+          } else {
+            document.getElementById("result").innerText = "❌ 登入失敗，請重試";
+          }
+        });
+    }
+
+    window.onload = confirmLogin;
+  </script>
+</head>
+<body>
+  <h1>正在處理登入...</h1>
+  <p id="result">處理中...</p>
+</body>
+</html>
