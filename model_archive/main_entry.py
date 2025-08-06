@@ -1,15 +1,15 @@
 from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
-from model_training.model import DINOv2TokenSegmentation, YOLOv9_M4, MaskRCNNSwin, EMA, UNETR_MoE_CLIP_RCNN
-from model_training.dataset import SegmentationDataset, YoloDetectionDataset, SegmentationDataset_ema, MultiModalSegDataset
-from model_training.train_val import (train_seg, evaluate_seg, test_seg, inference_seg, \
+from mrcnn.model import DINOv2TokenSegmentation, YOLOv9_M4, MaskRCNNSwin, EMA, UNETR_MoE_CLIP_RCNN
+from dataset import SegmentationDataset, YoloDetectionDataset, SegmentationDataset_ema, MultiModalSegDataset
+from train_val import (train_seg, evaluate_seg, test_seg, inference_seg, \
                        train_yolo, evaluate_yolo, test_yolo, inference_yolo, \
                        train_maskrcnn_ema, evaluate_maskrcnn_ema, inference_maskrcnn_ema, \
                        train_segmentation_model_moe, validate_segmentation_model_moe, evaluate_segmentation_model_moe, inference_segmentation_mode_moe)
-from model_training.loss import Mask2FormerLoss, CLIP_MultiTaskLoss
-from model_training.utils import collate_fn, collate_fn_yolo, collate_fn_moe, model_info, load_checkpoint
-from model_training.config import Config
+from loss import Mask2FormerLoss, CLIP_MultiTaskLoss
+from mrcnn.utils import collate_fn, collate_fn_yolo, collate_fn_moe, model_info, load_checkpoint
+from config import Config
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR, MultiStepLR, ExponentialLR, ReduceLROnPlateau, OneCycleLR
 from torch.utils.tensorboard import SummaryWriter
 import os
