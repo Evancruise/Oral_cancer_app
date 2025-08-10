@@ -16,12 +16,36 @@
             <img src="https://cdn-icons-png.flaticon.com/512/850/850960.png" alt="icon" class="user-icon">
         </div>
         <ul class="menu">
-            <li><i class="fas fa-home"></i> <a class="nav-link {{ 'active' if request.path == '/login' else '' }}" href="/login"> 首頁</a></li>
-            <li><i class="fas fa-history"></i> <a class="nav-link {{ 'active' if request.path == '/history' else '' }}" href="/history"> 病歷紀錄</a></li>
-            <li><i class="fas fa-trash"></i> <a class="nav-link {{ 'active' if request.path == '/discard_history' else '' }}" href="/discard_history"> 垃圾桶</a></li>
-            <li><i class="fas fa-key"></i> 快速密碼變更</li>
-            <li><i class="fas fa-link"></i> 重新綁定</li>
-            <li><i class="fas fa-sign-out-alt"></i> <a class="nav-link" href="/logout">登出</a></li>
+            <li>
+                <a class="nav-link {{ 'active' if request.path == '/login' else '' }}" href="/login">
+                    <i class="fas fa-home"></i> 首頁
+                </a>
+            </li>
+            <li>
+                <a class="nav-link {{ 'active' if request.path == '/history' else '' }}" href="/history">
+                    <i class="fas fa-history"></i> 病歷紀錄
+                </a>
+            </li>
+            <li>
+                <a class="nav-link {{ 'active' if request.path == '/discard_history' else '' }}" href="/discard_history">
+                    <i class="fas fa-trash"></i> 垃圾桶
+                </a>
+            </li>
+            <li>
+                <a class="nav-link" href="/change_password">
+                    <i class="fas fa-key"></i> 快速密碼變更
+                </a>
+            </li>
+            <li>
+                <a class="nav-link" href="/rebind">
+                    <i class="fas fa-link"></i> 重新綁定
+                </a>
+            </li>
+            <li>
+                <a class="nav-link" href="/logout">
+                    <i class="fas fa-sign-out-alt"></i> 登出
+                </a>
+            </li>
         </ul>
         <div class="version">ver 1.0</div>
     </div>
@@ -747,6 +771,7 @@
                                 const data_edit5 = await res_edit5.json();
 
                                 if (data_edit5.message === "not found") {
+                                    clearInterval(intervalId);
                                     showModal(`沒有此病患的辨識結果資料 (id=${current_patient_id})`, () => {
                                         console.log("使用者點擊 OK");
                                     }, () => {
@@ -1238,10 +1263,10 @@
 
                                 loadingModal("上傳影像中，請稍後...", 
                                 () => {
-                                    resultModal.show();
+                                    // resultModal.show();
                                 },
                                 () => {
-                                    resultModal.show();
+                                    // resultModal.show();
                                     console.log("按下 Cancel, 並已發送 /cancel_training");
                                 }, null
                                 , false);
@@ -1261,7 +1286,7 @@
 
                                             showModal(`上傳影像完成 (patient id: ${current_patient_id})`, () => {
                                                 console.log("使用者點擊 OK");
-                                                // window.location.href = data_result1.redirect;
+                                                window.location.href = data_result1.redirect;
                                             }, () => {
                                                 console.log("使用者點擊 Cancel");
                                             });
@@ -1401,6 +1426,7 @@
                             });
                         }
                     } else if (clickedButton && clickedButton.value === "check_result") {
+
                         const formData = new FormData(delete_form);
 
                         if (clickedButton && clickedButton.name) {
@@ -1424,7 +1450,7 @@
                             }
                         }
 
-                        openResultModal(delete_modal, formData, true);
+                        openResultModal(delete_modal, formData, false);
 
                         const pollingInterval = 3000; // 每 3 秒查一次
                         const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
@@ -1441,6 +1467,7 @@
                                 if (data_delete.message === "not found") {
                                     clearInterval(intervalId);
                                     showModal(`沒有此病患的辨識結果資料 (id=${current_patient_id})`, () => {
+                                        
                                         console.log("使用者點擊 OK");
                                     }, () => {
                                         console.log("使用者點擊 Cancel");
@@ -1487,6 +1514,18 @@
                 setInterval(() => checkInferenceForPatients(patient_ids), interval);
             }
 
+            function openPrevModal(current_modal, next_modal = false) {
+                const currentModal = bootstrap.Modal.getInstance(current_modal);
+                if (currentModal) currentModal.hide();
+
+                if (next_modal) {
+                    setTimeout(() => {
+                        const nextModal = new bootstrap.Modal(next_modal);
+                        nextModal.show();
+                    }, 400);
+                }
+            }
+
             function openResultModal(current_modal, formData, next_result_page = false) {
 
                 const currentModal = bootstrap.Modal.getInstance(current_modal);
@@ -1518,91 +1557,6 @@
                     });
                 }
 
-                // const upload_modal = result_modal.querySelector("#upload");
-
-                /*
-                if (upload_modal) {
-                    upload_modal.addEventListener("click", () => {
-                        const currentModal = bootstrap.Modal.getInstance(result_modal);
-                        if (currentModal) currentModal.hide();
-
-                        setTimeout(() => {
-                            const newModal = new bootstrap.Modal(current_modal);
-                            newModal.show();
-                        }, 400);
-                        
-                    });
-                }
-                */
-
-                /*
-                if (upload_modal) {
-                    upload_modal.addEventListener("click", async function(e) {
-
-                        const pollingInterval = 3000; // 每 3 秒查一次
-                        const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
-                        let attempts = 0;
-                        
-                        const res_result = await fetch("/record/result/{{ user_id }}", {
-                            method: "POST",
-                            body: formData
-                        });
-                        const data_result = await res_result.json();
-
-                        if (!data_result && !data_result.status) {
-                            throw new Error("上傳影像發生錯誤");
-                            return;
-                        }
-
-                        if (data_result.status === "ok") {
-                            const intervalId = setInterval(async () => {
-                                try {
-                                    const res_result1 = await fetch(`/record/upload_result/${current_patient_id}`, {
-                                        method: "GET"
-                                    });
-
-                                    const data_result1 = await res_result1.json();
-
-                                    if (data_result1.status === "done") {
-                                        clearInterval(intervalId);
-
-                                        showModal("上傳影像完成", () => {
-                                            console.log("使用者點擊 OK");
-                                            window.location.href = data_result1.redirect;
-                                        }, () => {
-                                            console.log("使用者點擊 Cancel");
-                                        });
-                                        
-                                    } else if (data_result1.status === "failed") {
-                                        clearInterval(intervalId);
-
-                                        showModal(`上傳影像失敗，錯誤訊息: ${data_result1.message}`, () => {
-                                            console.log("使用者點擊 OK");
-                                        }, () => {
-                                            console.log("使用者點擊 Cancel");
-                                        });
-                                        return;
-                                    }
-                                } catch (pollErr) {
-                                    clearInterval(intervalId);
-                                    showModal("輪詢過程出錯：" + pollErr.message, () => {
-                                        console.log("使用者點擊 OK");
-                                    }, () => {
-                                        console.log("使用者點擊 Cancel");
-                                    });
-                                }
-                            }, pollingInterval);
-                        } else {
-                            showModal("上傳過程出錯", () => {
-                                console.log("使用者點擊 OK");
-                            }, () => {
-                                console.log("使用者點擊 Cancel");
-                            });
-                        }
-                    });
-                }
-                */
-
                 const intervalId = setInterval(async () => {
                     try {
                         const res_add6 = await fetch(`/record/retrieve_results/${current_patient_id}`, {
@@ -1614,6 +1568,7 @@
                         if (data_add6.message === "not found") {
                             clearInterval(intervalId);
                             showModal(`沒有此病患的辨識結果資料 (id=${current_patient_id})`, () => {
+                                openPrevModal(current_modal, prev_modal);
                                 console.log("使用者點擊 OK");
                             }, () => {
                                 console.log("使用者點擊 Cancel");

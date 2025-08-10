@@ -507,8 +507,6 @@ def retrieve_result(patient_id):
     rows = cursor.fetchone()
     conn.close()
 
-    print('rows:', dict(rows))
-
     for i in range(1, 9):
         result = rows[f"img{i}_result"]
         if not result:
