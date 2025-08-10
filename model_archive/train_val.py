@@ -16,10 +16,15 @@ from torchmetrics.detection.mean_ap import MeanAveragePrecision
 import json
 import sqlite3
 
-from model_training.loss import yolov9_loss_fn_with_anchors, detection_loss
-from model_training.utils import draw_predictions, dice_score, visualize_predictions, \
+from model_archive.loss import yolov9_loss_fn_with_anchors, detection_loss
+from model_archive.utils import draw_predictions, dice_score, visualize_predictions, \
                  visualize_confusion_matrix, \
-                 export_prediction
+                 export_prediction, \
+                 masks_to_polygons, \
+                 plot_confusion_matrix, \
+                 plot_pr_curve, \
+                 segmentation_eval_batch, \
+                 compute_map
 
 def update_progress_status(message=None, patient_id=None, percent=0, db_path=None, filename_list=None):
 
@@ -660,16 +665,6 @@ def test_seg(model, dataloader, device, num_classes, save_dir=None, class_names=
     if save_dir:
         plt.savefig(os.path.join(save_dir, "per_class_metrics.png"))
     plt.show()
-
-    return {
-        "per_class_precision": precision_per_class,
-        "per_class_recall": recall_per_class,
-        "per_class_iou": iou_per_class,
-        "macro_precision": mean_precision,
-        "macro_recall": mean_recall,
-        "macro_iou": mean_iou,
-        "confusion_matrix": cm,
-    }
 
 @torch.no_grad()
 def inference_seg(model, dataloader, device, class_color_map=None, input_inference_path=None, save_dir=None, progress_path=None, patient_id=None, db_path=None):
@@ -1316,3 +1311,166 @@ def inference_segmentation_mode_moe(model, dataloader, device, class_color_map, 
     if patient_id:
         # check_progress_status(patient_id, db_path=db_path)
         update_progress_status("done", patient_id, 100, db_path, filename_list)
+
+def train_cascade_resnet(model, dataloader, device, epochs, optimizer, scheduler):
+    model.train()
+    total_loss = 0.0
+
+    torch.autograd.set_detect_anomaly(True)
+    total_steps = len(dataloader)
+
+    for i, batch in enumerate(dataloader):
+        images = batch['images'].to(device)
+        image_meta = batch['image_meta']
+
+        gt_boxes = [b.to(device) for b in batch['gt_boxes']]
+        gt_labels = [l.to(device) for l in batch['gt_labels']]
+        gt_masks = [m.to(device) for m in batch['gt_masks']]
+
+        optimizer.zero_grad()
+        losses = model(images, image_meta, gt_boxes, gt_labels, gt_masks, mode='train')
+        loss = sum(losses.values())
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+
+        print(f"Step {i + 1}/{total_steps}, Total loss: {loss.item():.4f}, mask_loss: {losses['mask_loss']:.4f}, cascade_cls_loss: {losses['cascade_cls_loss']:.4f}, cascade_bbox_loss: {losses['cascade_bbox_loss']:.4f}, rpn_class_loss: {losses['rpn_class_loss']:.4f}, rpn_bbox_loss: {losses['rpn_bbox_loss']:.4f}")
+
+    scheduler.step()
+    print(f"Average Training Loss: {total_loss:.4f}")
+
+@torch.no_grad()
+def evaluate_cascade_resnet(model, dataloader, device):
+    model.eval()
+
+    all_pred_boxes = []
+    all_pred_labels = []
+    all_pred_scores = []
+    all_gt_boxes = []
+    all_gt_labels = []
+
+    all_pred_masks = []
+    all_gt_masks = []
+
+    for batch in dataloader:
+        images = batch['images'].to(device)
+        image_meta = batch['image_meta']
+
+        gt_boxes = [b.to(device) for b in batch['gt_boxes']]
+        gt_labels = [l.to(device) for l in batch['gt_labels']]
+        gt_masks = [m.to(device) for m in batch['gt_masks']]
+
+        boxes, pred_labels, pred_scores, masks = model(
+            images, image_meta, gt_boxes, gt_labels, gt_masks, mode='val'
+        )
+
+        # 收集 Detection
+        all_pred_boxes.extend(boxes)
+        all_pred_labels.extend(pred_labels)
+        all_pred_scores.extend(pred_scores)
+
+        all_gt_boxes.extend(gt_boxes)
+        all_gt_labels.extend(gt_labels)
+
+        # 收集 Segmentation
+        all_pred_masks.extend(masks)
+        all_gt_masks.extend(gt_masks)
+
+    result = segmentation_eval_batch(all_pred_masks, all_gt_masks, all_pred_scores, all_pred_labels, all_gt_labels)
+
+    print("mAP:", result["mAP"])
+    print("AP per class:", result["AP_per_class"])
+    print("Detailed result:", result["per_image"])
+
+@torch.no_grad()
+def test_cascade_resnet(model, dataloader, device, num_classes, class_names):
+    model.eval()
+
+    all_preds = []
+    all_gts = []
+    all_scores = []
+
+    for batch in dataloader:
+        images = batch['images'].to(device)
+        image_meta = batch['image_meta']
+        # gt_labels = batch['gt_labels']  # [B, M]
+
+        # gt_boxes = [b.to(device) for b in batch['gt_boxes']]
+        gt_labels = [l.to(device) for l in batch['gt_labels']]
+        # gt_masks = [m.to(device) for m in batch['gt_masks']]
+
+        boxes, pred_labels, scores, masks = model(images, image_meta, mode='test')
+
+        all_preds.extend(pred_labels.cpu().tolist())
+        all_scores.extend(scores.cpu().tolist())
+        for gts in gt_labels:
+            all_gts.extend(gts[gts != -1].cpu().tolist())  # 避免 padding
+
+    # 畫 confusion matrix
+    plot_confusion_matrix(all_gts, all_preds, class_names=class_names)
+
+    # 對 scores 進行處理為多類別（你需要 return softmax logits）
+    # 假設你調整了 forward return：
+    # return boxes, labels, scores_max, masks, scores_all_classes
+
+    plot_pr_curve(all_gts, all_scores, num_classes=num_classes)
+
+    return all_preds, all_gts, all_scores
+
+@torch.no_grad()
+def inference_cascade_resnet(model, dataloader, class_names, device):
+    """
+    model: 已載入權重的模型 (eval 模式)
+    image_tensor: [1,3,H,W] tensor，未經標準化的輸入影像 (或你自己標準化的)
+    class_names: list[str] 類別名稱，class 0 是 background
+    device: 'cpu' or 'cuda'
+
+    回傳：原圖與繪製結果圖
+    """
+    model.eval()
+    
+    for batch in dataloader:
+        image_tensor = batch["images"].to(device)
+
+        # 模型 forward (假設回傳 boxes, labels, scores, masks)
+        boxes, labels, scores = model(image_tensor)[:3]  # 調整對應你的 model 回傳
+        masks = model(image_tensor)[3]  # 取出 mask 預測，[N, H, W]
+
+        # 將tensor轉numpy
+        image_np = image_tensor[0].cpu().permute(1,2,0).numpy()
+        image_np = (image_np * 255).astype(np.uint8)  # 如果有標準化要逆標準化
+
+        boxes = boxes.cpu().numpy()
+        labels = labels.cpu().numpy()
+        scores = scores.cpu().numpy()
+        masks = masks.cpu().numpy()
+
+        polygons_list = masks_to_polygons(masks)
+
+        # 繪圖
+        plt.figure(figsize=(12, 12))
+        plt.imshow(image_np)
+        ax = plt.gca()
+
+        colors = plt.cm.get_cmap('tab20', len(class_names))
+
+        for i, (box, label, score, polygons) in enumerate(zip(boxes, labels, scores, polygons_list)):
+            if score < 0.5:
+                continue
+
+            # 繪製box
+            x1, y1, x2, y2 = box
+            rect = plt.Rectangle((x1,y1), x2-x1, y2-y1, fill=False, edgecolor=colors(label), linewidth=2)
+            ax.add_patch(rect)
+
+            # 顯示類別名稱 + 信心度
+            ax.text(x1, y1 - 5, f"{class_names[label]}: {score:.2f}",
+                    color='w', fontsize=12, bbox=dict(facecolor=colors(label), alpha=0.7))
+
+            # 繪製多邊形mask
+            for polygon in polygons:
+                poly_patch = plt.Polygon(polygon, facecolor=colors(label), edgecolor='k', alpha=0.4)
+                ax.add_patch(poly_patch)
+
+        plt.axis('off')
+        plt.show()
