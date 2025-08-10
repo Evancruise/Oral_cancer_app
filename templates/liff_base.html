@@ -18,7 +18,7 @@
         <ul class="menu">
             <li><i class="fas fa-home"></i> <a class="nav-link {{ 'active' if request.path == '/login' else '' }}" href="/login"> 首頁</a></li>
             <li><i class="fas fa-history"></i> <a class="nav-link {{ 'active' if request.path == '/history' else '' }}" href="/history"> 病歷紀錄</a></li>
-            <li><i class="fas fa-trash"></i> 垃圾桶</li>
+            <li><i class="fas fa-trash"></i> <a class="nav-link {{ 'active' if request.path == '/discard_history' else '' }}" href="/discard_history"> 垃圾桶</a></li>
             <li><i class="fas fa-key"></i> 快速密碼變更</li>
             <li><i class="fas fa-link"></i> 重新綁定</li>
             <li><i class="fas fa-sign-out-alt"></i> <a class="nav-link" href="/logout">登出</a></li>
@@ -58,10 +58,13 @@
             const add_form = document.getElementById("add_form");
             const edit_form = document.getElementById("edit_form");
             const result_form = document.getElementById("result_form");
+            const delete_form = document.getElementById("delete_form");
             const add_modal = document.getElementById("newRecordModal");
             const edit_modal = document.getElementById("editRecordModal");
             const result_modal = document.getElementById("resultRecordModal");
+            const delete_modal = document.getElementById("viewRecordModal");
             const record_link = document.querySelectorAll(".record-link");
+            const record_discard_link = document.querySelectorAll(".record-link-discard");
             let current_patient_id = "";
             let clickedButton = null;
             const patient_ids = {{ all_patient_ids | default([]) | tojson }};
@@ -80,6 +83,11 @@
             if (result_form) {
                 bindImageResultPreview(parts, result_form);
                 logUploadedFiles(result_form);
+            }
+
+            if (delete_form) {
+                bindImageResultPreview(parts, delete_form);
+                logUploadedFiles(delete_form);
             }
 
             if (add_modal) {
@@ -117,6 +125,20 @@
                     // 👉 自訂行為，例如清空欄位、重設 collapse 狀態、圖片 preview 等
                     if (result_modal) {
                         const modal = bootstrap.Modal.getInstance(result_modal); // 取得已存在的 modal 實例
+                        if (modal) {
+                            modal.hide(); // 隱藏
+                        }
+                    }
+                });
+            }
+
+            if (delete_modal) {
+                delete_modal.addEventListener("hidden.bs.modal", () => {
+                    console.log("✌️ Edit Modal 已關閉");
+
+                    // 👉 自訂行為，例如清空欄位、重設 collapse 狀態、圖片 preview 等
+                    if (delete_modal) {
+                        const modal = bootstrap.Modal.getInstance(delete_modal); // 取得已存在的 modal 實例
                         if (modal) {
                             modal.hide(); // 隱藏
                         }
@@ -194,10 +216,57 @@
                 });
             });
 
+            document.querySelectorAll("#delete_form button[type=submit]").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    console.log("delete_form tag triggered!");
+                    clickedButton = btn;
+                });
+            });
+
             if (record_link) {
                 record_link.forEach(link => {
                     link.addEventListener("click", function () {
                         const modal = document.getElementById("editRecordModal");
+                        console.log("this.dataset:", this.dataset);
+                        modal.querySelector("input[name='name']").value = this.dataset.name;
+                        modal.querySelector("select[name='gender']").value = this.dataset.gender;
+                        modal.querySelector("input[name='age']").value = this.dataset.age;
+                        modal.querySelector("input[name='patient_id']").value = this.dataset.patient_id;
+                        /*
+                        modal.querySelector("input[name='pic1']").value = this.dataset.pic1;
+                        modal.querySelector("input[name='pic2']").value = this.dataset.pic2;
+                        modal.querySelector("input[name='pic3']").value = this.dataset.pic3;
+                        modal.querySelector("input[name='pic4']").value = this.dataset.pic4;
+                        modal.querySelector("input[name='pic5']").value = this.dataset.pic5;
+                        modal.querySelector("input[name='pic6']").value = this.dataset.pic6;
+                        modal.querySelector("input[name='pic7']").value = this.dataset.pic7;
+                        modal.querySelector("input[name='pic8']").value = this.dataset.pic8;
+                        */
+                        modal.querySelector("textarea[name='notes']").value = this.dataset.notes;
+
+                        modal.querySelector(`#preview_1`).src = this.dataset.pic1;
+                        modal.querySelector(`#preview_2`).src = this.dataset.pic2;
+                        modal.querySelector(`#preview_3`).src = this.dataset.pic3;
+                        modal.querySelector(`#preview_4`).src = this.dataset.pic4;
+                        modal.querySelector(`#preview_5`).src = this.dataset.pic5;
+                        modal.querySelector(`#preview_6`).src = this.dataset.pic6;
+                        modal.querySelector(`#preview_7`).src = this.dataset.pic7;
+                        modal.querySelector(`#preview_8`).src = this.dataset.pic8;
+
+                        // 加入 record_id hidden 欄位（或使用 query 參數）
+                        const hiddenInput = document.createElement("input");
+                        hiddenInput.type = "hidden";
+                        hiddenInput.name = "record_id";
+                        hiddenInput.value = this.dataset.record_id;
+                        modal.querySelector("form").appendChild(hiddenInput);
+                    });
+                });
+            }
+
+            if (record_discard_link) {
+                record_discard_link.forEach(link => {
+                    link.addEventListener("click", function () {
+                        const modal = document.getElementById("viewRecordModal");
                         console.log("this.dataset:", this.dataset);
                         modal.querySelector("input[name='name']").value = this.dataset.name;
                         modal.querySelector("select[name='gender']").value = this.dataset.gender;
@@ -624,7 +693,13 @@
                                         return;
                                     }
                                 }
-                            } 
+                            } else {
+                                showModal("請確認 上傳所有影像 / 沒有重複影像 後再進行推論", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                            }
                         } catch (err) {
                             showModal("推論啟動失敗：" + err.message, () => {
                                 console.log("使用者點擊 OK");
@@ -686,6 +761,8 @@
                                             result_modal.querySelector(`#upload_${i}`).src = record_dict[`img${i}`];
                                         }
                                     });
+
+                                    clearInterval(intervalId);
                                 }
 
                                 // 如果超過最大次數還沒完成，就停止
@@ -876,31 +953,13 @@
                                     if (response.status === 202) {
                                         console.log("Inference started in background.");
 
-                                        /*
-                                        const modalElement1 = document.getElementById('newRecordModal');
-                                        if (modalElement1) {
-                                            const modal1 = bootstrap.Modal.getInstance(modalElement1);
-                                            if (modal1) {
-                                                modal1.hide();
+                                        const modalElement = document.getElementById('newRecordModal');
+                                        if (modalElement) {
+                                            const modal = bootstrap.Modal.getInstance(modalElement);
+                                            if (modal) {
+                                                modal.hide();
                                             }
                                         }
-
-                                        const modalElement2 = document.getElementById('editRecordModal');
-                                        if (modalElement2) {
-                                            const modal2 = bootstrap.Modal.getInstance(modalElement2);
-                                            if (modal2) {
-                                                modal2.hide();
-                                            }
-                                        }
-
-                                        const modalElement3 = document.getElementById('addRecordModal');
-                                        if (modalElement3) {
-                                            const modal3 = bootstrap.Modal.getInstance(modalElement3);
-                                            if (modal3) {
-                                                modal3.hide();
-                                            }
-                                        }
-                                        */
 
                                         loadingModal("模型推論中，請稍後...",
                                             () => {
@@ -981,6 +1040,7 @@
                                                 return;
 
                                             } else if (status === "error") {
+                                                clearInterval(intervalId);
 
                                                 hideLoadingModal();
 
@@ -1022,6 +1082,12 @@
                                         return;
                                     }
                                 }
+                            } else {
+                                showModal("請確認 上傳所有影像 / 沒有重複影像 後再進行推論", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
                             }
                         } catch (err) {
                             showModal("推論啟動失敗：" + err.message, () => {
@@ -1085,6 +1151,7 @@
                                             result_modal.querySelector(`#upload_${i}`).src = record_dict[`img${i}`];
                                         }
                                     });
+                                    clearInterval(intervalId);
                                 }
 
                                 // 如果超過最大次數還沒完成，就停止
@@ -1248,6 +1315,174 @@
                 bindImageResultPreview(parts, result_form);
             }
 
+            if (delete_form) {
+                delete_form.addEventListener("submit", async function(e) {
+                    e.preventDefault();
+
+                    if (clickedButton && clickedButton.value === "resume") {
+
+                        const formData = new FormData(delete_form);
+
+                        if (clickedButton && clickedButton.name) {
+                            formData.append(clickedButton.name, clickedButton.value);
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+
+                            if (key === "patient_id") {
+                                current_patient_id = value;
+                            }
+                        }
+
+                        const res_delete = await fetch(`/record/resume_delete/{{ user_id }}/${current_patient_id}`, {
+                            method: "POST",
+                            body: formData
+                        });
+                        
+                        const data_delete = await res_delete.json();
+                            
+                        if (!data_delete && !data_delete.status) {
+                            throw new Error("還原影像發生錯誤");
+                            return;
+                        }
+
+                        if (data_delete.status === "ok") {
+                            showModal(`還原影像資料成功!(id:${current_patient_id})`, () => {
+                                window.location.href = data_delete.redirect;
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                console.log("使用者點擊 Cancel");
+                            });
+                        }
+
+                    } else if (clickedButton && clickedButton.value === "delete_confirm") {
+                        const formData = new FormData(delete_form);
+
+                        if (clickedButton && clickedButton.name) {
+                            formData.append(clickedButton.name, clickedButton.value);
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+
+                            if (!value instanceof File && !value.name) {
+                                showModal("請填妥所有必要欄位", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                                break;
+                            }
+
+                            if (key === "patient_id") {
+                                current_patient_id = value;
+                            }
+                        }
+
+                        const res_delete2 = await fetch(`/record/resume_delete/{{ user_id }}/${current_patient_id}`, {
+                            method: "POST",
+                            body: formData
+                        });
+
+                        const data_delete2 = await res_delete2.json();
+                            
+                        if (!data_delete2 && !data_delete2.status) {
+                            throw new Error("刪除影像發生錯誤");
+                            return;
+                        }
+
+                        if (data_delete2.status === "ok") {
+                            showModal(`刪除影像資料成功!(id:${current_patient_id})`, () => {
+                                window.location.href = data_delete2.redirect;
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                console.log("使用者點擊 Cancel");
+                            });
+                        }
+                    } else if (clickedButton && clickedButton.value === "check_result") {
+                        const formData = new FormData(delete_form);
+
+                        if (clickedButton && clickedButton.name) {
+                            formData.append(clickedButton.name, clickedButton.value);
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+
+                            if (!value instanceof File && !value.name) {
+                                showModal("請填妥所有必要欄位", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                                break;
+                            }
+
+                            if (key === "patient_id") {
+                                current_patient_id = value;
+                            }
+                        }
+
+                        openResultModal(delete_modal, formData, true);
+
+                        const pollingInterval = 3000; // 每 3 秒查一次
+                        const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
+                        let attempts = 0;
+
+                        const intervalId = setInterval(async () => {
+                            try {
+                                const res_delete = await fetch(`/record/retrieve_results/${current_patient_id}`, {
+                                    method: "GET"
+                                });
+
+                                const data_delete = await res_delete.json();
+
+                                if (data_delete.message === "not found") {
+                                    clearInterval(intervalId);
+                                    showModal(`沒有此病患的辨識結果資料 (id=${current_patient_id})`, () => {
+                                        console.log("使用者點擊 OK");
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                } else {
+                                    const record_dict = data_delete.record_dict;
+
+                                    const fields = [1, 2, 3, 4, 5, 6, 7, 8];
+                                    fields.forEach((i) => {
+                                        if (result_modal && record_dict[`img${i}`]) {
+                                            result_modal.querySelector(`#upload_${i}`).src = record_dict[`img${i}`];
+                                        }
+                                    });
+                                    clearInterval(intervalId);
+                                }
+
+                                // 如果超過最大次數還沒完成，就停止
+                                if (++attempts >= maxRetries) {
+                                    clearInterval(intervalId);
+                                    showModal("辨識逾時，請稍後再試", () => {
+                                        console.log("使用者點擊 OK");
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                }
+                            } catch(pollErr) {
+                                clearInterval(intervalId);
+                                showModal("輪詢過程出錯：" + pollErr.message, () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                            }
+                        }, pollingInterval);
+
+                        return;
+                    }
+                    clickedButton = null; // reset
+                });
+                bindImageResultPreview(parts, delete_form);
+            }
+
             function startPolling(patient_ids, interval = 3000) {
                 setInterval(() => checkInferenceForPatients(patient_ids), interval);
             }
@@ -1393,6 +1628,8 @@
                                     img.src = record_dict[`img${i}`];
                                 }
                             });
+
+                            clearInterval(intervalId);
                         }
 
                         // 如果超過最大次數還沒完成，就停止

@@ -17,6 +17,7 @@ from linebot.exceptions import InvalidSignatureError
 from model_archive.model import YOLOv9_M4, DINOv2TokenSegmentation
 from model_archive.main_entry import model_trainvaltest_process
 from model_archive.config import Config
+from model_archive.utils import delete_files_in_folder
 
 from werkzeug.utils import secure_filename
 from pyngrok import ngrok
@@ -128,6 +129,43 @@ def init_db():
         )
     ''')
 
+    # 建立 records 表 (垃圾桶)
+    cursor.execute('''
+        DROP TABLE IF EXISTS records_gb;
+    ''')
+
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS records_gb (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            gender TEXT NOT NULL,
+            age INTEGER NOT NULL,
+            patient_id TEXT NOT NULL,
+            result TEXT,
+            notes TEXT,
+            status TEXT,
+            progress INT,
+            message TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            img1 TEXT,
+            img2 TEXT,
+            img3 TEXT,
+            img4 TEXT,
+            img5 TEXT,
+            img6 TEXT,
+            img7 TEXT,
+            img8 TEXT,
+            img1_result TEXT,
+            img2_result TEXT,
+            img3_result TEXT,
+            img4_result TEXT,
+            img5_result TEXT,
+            img6_result TEXT,
+            img7_result TEXT,
+            img8_result TEXT
+        )
+    ''')
+
     conn.commit()
     conn.close()
 
@@ -165,28 +203,71 @@ def check_db_table():
 
     conn.close()
 
-def extract_uploaded_images(files, patient_id):
-    saved_paths = {}
-    image_paths = {
-        key: file
-        for key, file in files.items()
-        if file and file.filename and file.filename.strip() != ''
-    }
+def file_reload(patient_id):
 
-    os.makedirs(f"{UPLOAD_DIR}/{patient_id}", exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT img1, img2, img3, img4, img5, img6, img7, img8 FROM records
+        WHERE patient_id = ?;
+    """, (patient_id, ))
+    rows = cursor.fetchone()
+
+    conn.close()
+
+    if not rows:
+        return None
+    
+    saved_paths = {}
+
     for i in range(1, 9):
         key = f"pic{i}"
-        file = image_paths.get(key)
-
-        if file and file.filename:
-            filename = secure_filename(file.filename)  # 確保安全檔名
-            save_path = f"{UPLOAD_DIR}/{patient_id}/{filename}"
-            file.save(save_path)
-            saved_paths[key] = save_path
-        else:
-            saved_paths[key] = None
-
+        saved_paths[key] = rows[f"img{i}"]
+    
     return saved_paths
+
+def extract_uploaded_images(files, patient_id):
+    print("files:", files)
+
+    # 過濾有效的 FileStorage
+    uploaded_files = {
+        key: file
+        for key, file in files.items()
+        if getattr(file, "filename", "").strip()
+    }
+
+    print("uploaded_files:", uploaded_files)
+
+    if uploaded_files:
+        # 回傳檔名字典（統一輸出格式）
+        saved_paths = {}
+
+        os.makedirs(f"{UPLOAD_DIR}/{patient_id}", exist_ok=True)
+        delete_files_in_folder(f"{UPLOAD_DIR}/{patient_id}")
+
+        for i in range(1, 9):
+            key = f"pic{i}"
+            file = uploaded_files.get(key)
+            
+            if file and file.filename:
+                filename = secure_filename(file.filename)  # 確保安全檔名
+                save_path = f"{UPLOAD_DIR}/{patient_id}/{filename}"
+                file.save(save_path)
+                saved_paths[key] = save_path
+            else:
+                return None
+        
+        if len(os.listdir(f"{UPLOAD_DIR}/{patient_id}")) != 8:
+            return None
+        
+        print("saved_paths1:", saved_paths)
+        return saved_paths
+    else:
+        # 回傳資料庫中已存的檔案名稱（統一輸出格式）
+        saved_paths = file_reload(patient_id)
+        print("saved_paths2:", saved_paths)
+        return saved_paths
 
 @app.route("/record/edit/<record_id>", methods=["POST"])
 def edit_record(record_id):
@@ -206,10 +287,10 @@ def edit_record(record_id):
     cursor = conn.cursor()
 
     if action == "save":
-
+        
         image_paths = extract_uploaded_images(files, form['patient_id'])
 
-        print("image_paths:", image_paths, " length=", len(image_paths))
+        print("image_paths1:", image_paths)
 
         if image_paths and check_image_upload(files):
             print("insert include image_paths")
@@ -251,7 +332,8 @@ def edit_record(record_id):
 
         image_paths = extract_uploaded_images(files, form['patient_id'])
 
-        print("image_paths:", image_paths)
+        if not image_paths:
+            return jsonify({"status": "failed", "message": "No image found","redirect": url_for("history")})
 
         cursor.execute("""
             UPDATE records
@@ -269,6 +351,97 @@ def edit_record(record_id):
 
         return jsonify({"status": "ok", "redirect": url_for("history")})
 
+@app.route("/record/resume_delete/<record_id>/<patient_id>", methods=["POST"])
+def resume_delete_record(record_id, patient_id):
+    if record_id != session["user_id"]:
+        return jsonify({"status": "failed", "message": "request token changed", "redirect": url_for("history")})
+
+    form = request.form
+
+    action = form.get("action")
+    print("patient_id:", patient_id)
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    # cursor.execute("DELETE FROM records WHERE patient_id = ?", (patient_id,))
+    # conn.commit()
+    if action == "resume":
+        cursor.execute("""
+            INSERT INTO records (
+                name, gender, age, patient_id, result, notes, status, progress, message, timestamp,
+                img1, img2, img3, img4, img5, img6, img7, img8,
+                img1_result, img2_result, img3_result, img4_result, img5_result, img6_result, img7_result, img8_result
+            )
+            SELECT
+                name, gender, age, patient_id, result, notes, status, progress, message, timestamp,
+                img1, img2, img3, img4, img5, img6, img7, img8,
+                img1_result, img2_result, img3_result, img4_result, img5_result, img6_result, img7_result, img8_result
+            FROM records_gb
+            WHERE patient_id = ?;
+        """, (patient_id, ))
+
+        conn.commit()
+
+        cursor.execute("SELECT * FROM records WHERE patient_id = ?", (patient_id,))
+        conn.commit()
+        row = cursor.fetchone()
+
+        cursor.execute("DELETE FROM records_gb WHERE patient_id = ?", (patient_id,))
+        conn.commit()
+
+        cursor.execute("SELECT * FROM records_gb WHERE patient_id = ?", (patient_id,))
+        conn.commit()
+        row_gb = cursor.fetchone()
+
+        conn.close()
+
+        if row and not row_gb:
+            return jsonify({"status": "ok", "redirect": url_for("discard_history")})
+        else:
+            return jsonify({"status": "failed", "message": "resume failed", "redirect": url_for("discard_history")})
+
+    elif action == "delete_confirm":
+
+        cursor.execute("DELETE FROM records WHERE patient_id = ?", (patient_id,))
+        conn.commit()
+
+        cursor.execute("DELETE FROM records_gb WHERE patient_id = ?", (patient_id,))
+        conn.commit()
+
+        cursor.execute("SELECT * FROM records_gb WHERE patient_id = ?", (patient_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        delete_files_in_folder(f"{UPLOAD_DIR}/{patient_id}")
+
+        if row:
+            return jsonify({"status": "failed", "message": "delete failed", "redirect": url_for("discard_history")})
+        else:
+            return jsonify({"status": "ok", "redirect": url_for("discard_history")})
+
+@app.route("/record/delete_confirm/<record_id>/<patient_id>", methods=["POST"])
+def delete_record_confirm(record_id, patient_id):
+    if record_id != session["user_id"]:
+        return jsonify({"status": "failed", "message": "request token changed", "redirect": url_for("history")})
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM records_gb WHERE patient_id = ?", (patient_id,))
+    conn.commit()
+
+    cursor.execute("SELECT * FROM records_gb WHERE patient_id = ?", (patient_id,))
+    rows = cursor.fetchall()
+    conn.close()
+
+    if rows:
+        return jsonify({"status": "failed", "message": "delete failed", "redirect": url_for("history")})
+    else:
+        return jsonify({"status": "ok", "redirect": url_for("history")})
+
 @app.route("/record/delete/<record_id>/<patient_id>", methods=["POST"])
 def delete_record(record_id, patient_id):
 
@@ -278,6 +451,24 @@ def delete_record(record_id, patient_id):
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
+
+    # cursor.execute("DELETE FROM records WHERE patient_id = ?", (patient_id,))
+    # conn.commit()
+
+    cursor.execute("""
+        INSERT INTO records_gb (
+            name, gender, age, patient_id, result, notes, status, progress, message, timestamp,
+            img1, img2, img3, img4, img5, img6, img7, img8,
+            img1_result, img2_result, img3_result, img4_result, img5_result, img6_result, img7_result, img8_result
+        )
+        SELECT
+            name, gender, age, patient_id, result, notes, status, progress, message, timestamp,
+            img1, img2, img3, img4, img5, img6, img7, img8,
+            img1_result, img2_result, img3_result, img4_result, img5_result, img6_result, img7_result, img8_result
+        FROM records
+        WHERE patient_id = ?;
+    """, (patient_id, ))
+    conn.commit()
 
     cursor.execute("DELETE FROM records WHERE patient_id = ?", (patient_id,))
     conn.commit()
@@ -315,7 +506,8 @@ def retrieve_result(patient_id):
 
     rows = cursor.fetchone()
     conn.close()
-    print("rows:", rows)
+
+    print('rows:', dict(rows))
 
     for i in range(1, 9):
         result = rows[f"img{i}_result"]
@@ -353,7 +545,7 @@ def new_record(record_id):
         
         image_paths = extract_uploaded_images(files, form['patient_id'])
 
-        print("image_paths:", image_paths, " length=", len(image_paths))
+        print("image_paths2:", image_paths)
 
         if image_paths and check_image_upload(files):
 
@@ -384,7 +576,7 @@ def new_record(record_id):
                 INSERT INTO records (
                     name, gender, age, patient_id, notes, timestamp, status, progress
                 )
-                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
             """, (form['name'], form['gender'], int(form['age']), form['patient_id'], form['notes'], "not_started", 0,))
 
         conn.commit()
@@ -398,6 +590,9 @@ def new_record(record_id):
     elif action == "infer":
 
         image_paths = extract_uploaded_images(files, form['patient_id'])
+
+        if not image_paths:
+            return jsonify({"status": "failed", "message": "No image found","redirect": url_for("history")})
 
         cursor.execute("""
                 INSERT INTO records (
@@ -538,11 +733,18 @@ def check_inference(patient_id):
     """, (patient_id,))
 
     row = cursor.fetchone()
-    status = row["status"]     # "running"
-    progress = row["progress"]
-
     conn.commit()
     conn.close()
+
+    if not row:
+        return jsonify({
+            "status": "unknown",
+            "progress": 0,
+            "message": f"無法讀取狀態"
+        })
+    
+    status = row["status"]     # "running"
+    progress = row["progress"]
     
     if status == "not_started":
         return jsonify({
@@ -580,6 +782,78 @@ def check_inference(patient_id):
             "progress": 0,
             "message": f"未知狀態：{status}"
         })
+
+@app.route('/discard_history')
+def discard_history():
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    patient_id_dict = []
+
+    cursor.execute("SELECT * FROM records_gb ORDER BY timestamp DESC")
+    rows = cursor.fetchall()
+
+    grouped = defaultdict(list)
+    for row in rows:
+        dt_naive = datetime.datetime.strptime(row['timestamp'], "%Y-%m-%d %H:%M:%S")
+        dt_utc = dt_naive.replace(tzinfo=ZoneInfo("UTC"))
+        dt = dt_utc.astimezone(ZoneInfo(TIMEZONE))
+
+        datetime_str = dt.strftime("%Y-%m-%d")  # 精準到秒
+        weekday_str = dt.strftime("%A")
+
+        weekday_map = {
+            'Monday': '一',
+            'Tuesday': '二',
+            'Wednesday': '三',
+            'Thursday': '四',
+            'Friday': '五',
+            'Saturday': '六',
+            'Sunday': '日',
+        }
+
+        chinese_weekday = weekday_map.get(weekday_str, '')
+        date_display = f"{datetime_str}（{chinese_weekday}）"
+
+        current_table = {
+            'name': row['name'],
+            'gender': row['gender'],
+            'age': row['age'],
+            'patient_id': row['patient_id'],
+            'time': row['timestamp'],  # 原始 timestamp 可用於排序
+            'notes': row['notes'],
+            'icon': 'camera',
+            'bg_class': '',
+            'pic1': row['img1'] or "/static/guide/1.png",
+            'pic2': row['img2'] or "/static/guide/2.png",
+            'pic3': row['img3'] or "/static/guide/3.png",
+            'pic4': row['img4'] or "/static/guide/4.png",
+            'pic5': row['img5'] or "/static/guide/5.png",
+            'pic6': row['img6'] or "/static/guide/6.png",
+            'pic7': row['img7'] or "/static/guide/7.png",
+            'pic8': row['img8'] or "/static/guide/8.png",
+            'pic1_r': row['img1_result'] or "/static/guide/1.png",
+            'pic2_r': row['img2_result'] or "/static/guide/2.png",
+            'pic3_r': row['img3_result'] or "/static/guide/3.png",
+            'pic4_r': row['img4_result'] or "/static/guide/4.png",
+            'pic5_r': row['img5_result'] or "/static/guide/5.png",
+            'pic6_r': row['img6_result'] or "/static/guide/6.png",
+            'pic7_r': row['img7_result'] or "/static/guide/7.png",
+            'pic8_r': row['img8_result'] or "/static/guide/8.png"
+        }
+
+        print("current_table:", current_table)
+
+        grouped[date_display].append(current_table)
+        patient_id_dict.append(row['patient_id'])
+    
+    if "user_id" not in session:
+        return redirect(url_for('index'))
+
+    print("dict(grouped):", dict(grouped))
+
+    return render_template("liff_discard_records.html", grouped_records=dict(grouped), user_id=session["user_id"], all_patient_ids=patient_id_dict)
 
 @app.route('/history')
 def history():

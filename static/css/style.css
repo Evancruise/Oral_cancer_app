@@ -1,6 +1,79 @@
+/*
 body {
-    background-color: #eaf6ff;
-    font-family: sans-serif;
+    font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+    background: #f5f7fa;
+    display: flex;
+    height: 100vh;
+    margin: 0;
+    padding: 0 20px;
+    color: #333;
+}
+*/
+
+.login-container {
+    width: 100%;
+    max-width: 360px; /* 最大寬度 */
+    background: #fff;
+    padding: 30px 40px;
+    border-radius: 10px;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+    text-align: center;
+}
+
+form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    text-align: left;
+    color: #555;
+}
+
+input[type="text"],
+input[type="password"] {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1.5px solid #ccc;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: border-color 0.3s;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus {
+    outline: none;
+    border-color: #0078d4;
+    box-shadow: 0 0 6px #0078d4aa;
+}
+
+button {
+    margin-top: 12px;
+    padding: 12px 0;
+    background-color: #0078d4;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    font-weight: 600;
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #005fa3;
+}
+
+.error-message {
+    color: #d93025;
+    font-weight: 600;
+    margin-bottom: 12px;
+    text-align: left;
+    font-size: 14px;
 }
 
 .date-divider {
@@ -293,4 +366,16 @@ button {
 @keyframes fadeIn {
     from { opacity: 0; transform: translateY(-5px); }
     to { opacity: 1; transform: translateY(0); }
+}
+
+@media (max-width: 320px) {
+  body {
+    padding: 0 10px;
+  }
+  .login-container {
+    padding: 20px 20px;
+  }
+  button {
+    font-size: 14px;
+  }
 }
