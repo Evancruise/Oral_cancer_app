@@ -17,7 +17,7 @@
         </div>
         <ul class="menu">
             <li>
-                <a class="nav-link {{ 'active' if request.path == '/login' else '' }}" href="/login">
+                <a class="nav-link {{ 'active' if request.path == '/top_page' else '' }}" href="/top_page">
                     <i class="fas fa-home"></i> 首頁
                 </a>
             </li>
@@ -32,12 +32,12 @@
                 </a>
             </li>
             <li>
-                <a class="nav-link" href="/change_password">
+                <a class="nav-link {{ 'active' if request.path == '/change_password' else '' }}" href="/change_password">
                     <i class="fas fa-key"></i> 快速密碼變更
                 </a>
             </li>
             <li>
-                <a class="nav-link" href="/rebind">
+                <a class="nav-link {{ 'active' if request.path == '/rebind-page' else '' }}" href="/rebind-page">
                     <i class="fas fa-link"></i> 重新綁定
                 </a>
             </li>
@@ -61,6 +61,7 @@
 
     <!-- Bootstrap script -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"><script>
 
     <script type="module">
         import { logUploadedFiles, bindImageUploadPreview, bindImageResultPreview, showLoadingModal, loadModal, loadingModal, showModal, hideLoadingModal } from "{{ url_for('static', filename='js/modal.js') }}";
@@ -83,6 +84,7 @@
             const edit_form = document.getElementById("edit_form");
             const result_form = document.getElementById("result_form");
             const delete_form = document.getElementById("delete_form");
+            const changepwd_form = document.getElementById("changepwd_form");
             const add_modal = document.getElementById("newRecordModal");
             const edit_modal = document.getElementById("editRecordModal");
             const result_modal = document.getElementById("resultRecordModal");
@@ -241,6 +243,13 @@
             });
 
             document.querySelectorAll("#delete_form button[type=submit]").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    console.log("delete_form tag triggered!");
+                    clickedButton = btn;
+                });
+            });
+
+            document.querySelectorAll("#changepwd_form button[type=submit]").forEach(btn => {
                 btn.addEventListener("click", () => {
                     console.log("delete_form tag triggered!");
                     clickedButton = btn;
@@ -1510,6 +1519,44 @@
                 bindImageResultPreview(parts, delete_form);
             }
 
+            if (changepwd_form) {
+                changepwd_form.addEventListener("submit", async function(e) {
+                    e.preventDefault();
+
+                    if (clickedButton) {
+                        console.log("使用者點了開始編輯病歷");
+
+                        const formData = new FormData(changepwd_form);
+                        
+                        if (clickedButton && clickedButton.name) {
+                            formData.append(clickedButton.name, clickedButton.value);
+                        }
+
+                        const res_changepwd = await fetch("/verify_change_pwd", {
+                            method: "POST",
+                            body: formData
+                        });
+
+                        const data_changepwd = await res_changepwd.json();
+
+                        if (data_changepwd.status === "ok") {
+                            showModal("改變密碼成功，請重新登入", () => {
+                                window.location.href = data_changepwd.redirect;
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                console.log("使用者點擊 Cancel");
+                            });
+                        } else {
+                            showModal(`${data_changepwd.message}`, () => {
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                console.log("使用者點擊 Cancel");
+                            });
+                        }
+                    }
+                });
+            }
+
             function startPolling(patient_ids, interval = 3000) {
                 setInterval(() => checkInferenceForPatients(patient_ids), interval);
             }
@@ -1607,7 +1654,33 @@
                 }, pollingInterval);
             }
 
+            async function checkStates() {
+                const res = await fetch("/check_status/{{ user_id }}");
+                const data = await res.json();
+
+                if (data.status === "login") {
+                    window.location.href = "/history";
+                } else {
+                    setTimeout(checkStates, 2000);
+                }
+            }
+
             startPolling(patient_ids);
+            checkStates();
+
+            const socket = io();
+
+            socket.emit("join_room", { room: `user_{{ user_id }}`});
+
+            socket.on("qr_bound", (data) => {
+                showModal("成功重新綁定，請再重新登入一次", () => {
+                    window.location.href = "/login";
+                    console.log("使用者點擊 OK");
+                }, () => {
+                    window.location.href = "/login";
+                    console.log("使用者點擊 Cancel");
+                });
+            });
         });
     </script>
 </body>
