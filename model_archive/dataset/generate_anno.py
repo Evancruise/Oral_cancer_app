@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import torch
 import shutil
 
-ROOT_DIR = "./model_training/dataset/"
+ROOT_DIR = "./dataset/"
 ANNOT_DIR = ROOT_DIR + "all/annotations_pt"
 ANNOT_MASK_DIR = ROOT_DIR + "all/annotations_mask"
 ANNOT_DIR_JSON = ROOT_DIR + "all/annotations_json"
@@ -36,7 +36,7 @@ os.makedirs(TEST_IMG_DIR, exist_ok=True)
 
 class_dict = {"Green": 1, "Yellow": 2, "Red": 3}
 
-def save_torch(json_path, output_shape=(384, 512), label_map=None, save_path=None, save_path_jpg=None):
+def save_torch(json_path, output_shape=(512, 384), label_map=None, save_path=None, save_path_jpg=None):
     # label_map: {"Red": 1, "Yellow": 2, ...}
     print("json_path:", json_path)
 
@@ -146,7 +146,7 @@ if __name__ == "__main__":
                        save_path=ANNOT_DIR + '/' + json_file.split('.')[0] + ".pt", 
                        save_path_jpg=ANNOT_MASK_DIR + '/' + json_file.split('.')[0] + ".jpg")
 
-    # reshuffle_datasets(0.7, 0.9)
+    reshuffle_datasets(0.7, 0.9)
 
         
         

@@ -77,6 +77,7 @@ class SegmentationDataset(Dataset):
 
     def __getitem__(self, idx):
         # 讀圖片
+        print("self.image_paths:", self.image_paths)
         img_name = self.image_paths[idx].split("\\")[-1]
         img = Image.open(self.image_paths[idx]).convert("RGB")
         # 讀遮罩 (假設是多物件instance mask：每個物件有自己的二元mask，存在一張多通道圖或多張圖中)
@@ -275,3 +276,49 @@ class MultiModalSegDataset(Dataset):
             fx1, fy1, fx2, fy2 = x1 / self.patch_size, y1 / self.patch_size, x2 / self.patch_size, y2 / self.patch_size
             rois.append([batch_idx, fx1, fy1, fx2, fy2])
         return torch.tensor(rois, dtype=torch.float32)
+
+class MultiModalSegCascadeDataset(Dataset):
+    def __init__(self, img_size, image_paths, ann_paths=None, image_transform=None, label_map=None, resize_img_size=None):
+        self.img_size = img_size
+        self.resize_img_size = resize_img_size
+        self.image_paths = image_paths
+        self.ann_paths = ann_paths
+        self.label_map = label_map if label_map else {"None"}
+        self.image_transform = image_transform
+
+    def __len__(self):
+        return len(self.image_paths)
+    
+    def __getitem__(self, idx):
+        img_path = self.image_paths[idx]
+        ann_path = self.ann_paths[idx]
+
+        # --- 1. Load image ---
+        img = Image.open(img_path).convert("RGB")
+
+        if self.image_transform:
+            img = self.image_transform(img)  # [3, H, W]
+            H, W = img.shape[1:]
+        else:
+            H, W = img.size
+
+        if not ann_path or not os.path.exists(ann_path):
+            return {}
+        
+        data = torch.load(ann_path)
+        boxes = data.get("bboxes", torch.zeros(0, 4))
+
+        if not self.resize_img_size:
+            masks = data.get("masks", torch.zeros(0, *self.img_size))  # [N, H, W]
+        else:
+            masks = data.get("masks", torch.zeros(0, *self.resize_img_size))
+
+        labels = data.get("labels", torch.zeros(0, dtype=torch.long))  # [N]
+
+        return {
+            'images': img,  # (C, H, W)
+            'image_meta': {'original_shape': (H, W)},
+            'gt_boxes': boxes,     # (N, 4)
+            'gt_labels': labels,   # (N,)
+            'gt_masks': masks      # (N, H, W)
+        }
