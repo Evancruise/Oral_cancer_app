@@ -30,6 +30,7 @@ class PILPadTo16:
             raise TypeError("Input must be PIL.Image")
         
 class Config:
+
     def __init__(self):
         self.get_config()
         
@@ -95,8 +96,12 @@ class Config:
             transforms.ToTensor()
         ])
 
+        self.image_transform_cascade = transforms.Compose([
+            transforms.ToTensor()
+        ])
+
         # 收集所有圖與標註檔案
-        self.root_dir = "model_training/"
+        self.root_dir = "model_archive/"
         # self.root_dir = "./"
         self.train_image_paths = sorted(glob.glob(self.root_dir + "dataset/train/images/*.png"))
         self.train_ann_paths = sorted(glob.glob(self.root_dir + "dataset/train/annotations/*.pt"))
@@ -112,10 +117,10 @@ class Config:
         self.inference_ann_paths = None
         self.inference_ann_mask_paths = None
 
-        self.model_dir = self.root_dir + "model_archive"
-        self.img_size = (512, 384)
-        # self.resize_img_size = (512, 384)
-        self.resize_img_size = (160, 224)
+        self.model_dir = self.root_dir + "checkpoints"
+        self.img_size = (384, 512)
+        self.resize_img_size = (384, 512)
+        # self.resize_img_size = (160, 224)
         self.lr = 1e-4
         self.weight_decay = 1e-4
         self.batch_size = 4

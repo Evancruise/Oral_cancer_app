@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.ops import box_iou, generalized_box_iou
-from model_training.utils import encode_boxes, smooth_one_hot
+from model_archive.utils import encode_boxes, smooth_one_hot
 # from utils import encode_boxes, smooth_one_hot
 from scipy.optimize import linear_sum_assignment
 
