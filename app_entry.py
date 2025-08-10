@@ -25,6 +25,7 @@ from model_archive.utils_func import delete_files_in_folder, move_files_in_folde
 from werkzeug.utils import secure_filename
 from pyngrok import ngrok
 from flask import Flask, render_template, request, redirect, session, url_for, jsonify, send_from_directory, abort, send_file
+from flask_socketio import SocketIO, emit
 from linebot import LineBotApi, WebhookHandler
 from flask_cors import CORS
 from linebot.models import (
@@ -47,6 +48,8 @@ app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY")
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
+socketio = SocketIO(app)
+
 all_config = Config()
 save_dir = all_config.save_dir
 
@@ -60,6 +63,8 @@ LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 LINE_BOT_ID = os.getenv("LINE_BOT_ID")
 USERNAME = os.getenv("USERNAME")
 PASSWORD = os.getenv("PASSWORD")
+URL = "127.0.0.1"
+
 USER_ID = os.getenv("USER_ID")
 TIMEZONE = os.getenv("TIMEZONE")
 
@@ -92,6 +97,7 @@ def init_db():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            qr_session_id TEXT NOT NULL,
             username TEXT UNIQUE NOT NULL,
             password BLOB NOT NULL
         )
@@ -1004,19 +1010,24 @@ def gen_session():
         print("Redis exception:", e)
         return jsonify({'success': False, 'error': str(e)}), 500
 
-@app.route('/qr_login/<session_id>', methods=['GET', 'POST'])
+@app.route('/qr-login/<session_id>', methods=['GET', 'POST'])
 def qr_login(session_id):
-    # 模擬手機掃描 + 點擊確認登入流程
-    if request.method == 'GET':
-        return render_template('scan_confirm.html', session_id=session_id)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT id FROM users WHERE qr_session_id=?", (session_id, ))
+    user = cursor.fetchone()
+
+    if not user:
+        return "QR code 無效/已過期", 400
     
-    elif request.method == 'POST':
-        if session_id in qr_sessions:
-            qr_sessions[session_id]['status'] = 'scanned'
-            qr_sessions[session_id]['user_id'] = request.form.get("user_id", "anonymous")
-            qr_sessions[session_id]['source'] = request.form.get("source", "unknown")
-            return jsonify({'success': True})
-        return jsonify({'success': False})
+    user_id = user[0]
+
+    session["user_id"] = user_id
+
+    socketio.emit("qr_bound", {"msg": "QR綁定完成"}, room=f"user_{user_id}")
+
+    return redirect(url_for("/login"))
 
 @app.route("/uploads/<user_id>/<filename>")
 def get_uploaded_file(user_id, filename):
@@ -1042,61 +1053,83 @@ def line_webhook():
 
     return 'OK'
 
-# === Web UI 顯示 QR code + 輪詢登入狀態 ===
-@app.route("/", methods=['GET', 'POST'])
-def index():
-    if request.method == 'POST':
-        # 處理帳密登入
-        username = request.form.get('username')
-        password = request.form.get('password')
-        if username and password == PASSWORD:
-            if 'user_id' not in session or session['user_id'] != USER_ID:
-                session['user_id'] = USER_ID
+@app.route("/verify_change_pwd", methods=["POST"])
+def verify_change_pwd():
+    form = request.form
+    old_password = form.get("old_password")
+    if old_password != session["password"]:
+        return jsonify({"status": "failed", "message": "新密碼與舊密碼不一致"})
 
-            token = generate_jwt(username)
-            return render_template("liff_login.html", user=username, token=token)
-        
-        return render_template("liff_index.html", error="登入失敗")
+    new_password = form.get("new_password")
 
-    # 原本 QR code 流程
-    '''
-    session_id = str(uuid.uuid4())
-    if session_id not in session:
-        session["user_id"] = session_id
+    if old_password == new_password:
+        return jsonify({"status": "failed", "message": "請改與舊密碼不同的密碼"})
+
+    if len(new_password) < 8:
+        return jsonify({"status": "failed", "message": "密碼長度至少要超過8個字元"})
+
+    session["password"] = new_password
+
+    return jsonify({"status": "ok", "redirect": url_for("login_page")})
+
+@app.route("/change_password")
+def change_pwd():
+    username = session["username"]
+    password = session["password"]
+    user_id = session["user_id"]
+    return render_template("liff_change_pwd.html", username=username, password=password, user_id=user_id)
+
+@app.route("/login_redirect", methods=['POST'])
+def login_redirect():
+    username = request.form.get('username')
+    password = request.form.get('password')
+    print("username:", username)
+    print("password:", password)
+
+    if username == 'admin' and password == session["password"]:
+        token = generate_jwt(username)  # 產生 JWT
+        print("token:", token)
+        session["status"] = "login"
+        session["token"] = token
+        session["username"] = username
+        session["password"] = password
+        return jsonify({"status": "success", "redirect": url_for("top_page")})
     
-    login_url = url_for('qr_login', session_id=session_id, _external=True)
-    r.hmset(f"qr:{session_id}", {
-        'status': 'pending',
-        'user_id': '',
-        'source': 'web'
-    })
-    r.expire(f"qr:{session_id}", 300)
-
-    img = qrcode.make(login_url)
-    buffer = io.BytesIO()
-    img.save(buffer, format='PNG')
-    img_b64 = base64.b64encode(buffer.getvalue()).decode()
-
-    return render_template("liff_index.html", session_id=session_id, qr=img_b64)
-    '''
-    session["user_id"] = USER_ID
-
-    return render_template("liff_index.html")
-
-@app.route("/logout")
-def logout():
-    return redirect(url_for("index"))
+    return jsonify({"status": "failed", "redirect": url_for("login_page")})
 
 @app.route("/login", methods=['GET', 'POST'])
 def login_page():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        if username == 'admin' and password == '1234':
-            token = generate_jwt(username)  # 產生 JWT
-            return render_template("liff_login.html", user=username, token=token)
-        return render_template("liff_login.html", error="登入失敗")
-    return render_template("liff_login.html")
+    
+    session_id = str(uuid.uuid4())
+    session["user_id"] = session_id
+    session["status"] = "pending"
+    if "password" not in session:
+        session["password"] = PASSWORD
+
+    # 生成 QR code
+    qr_data = f"https://{URL}:5000/qr-login/{session_id}"
+    qr_img = qrcode.make(qr_data)
+    buffer = io.BytesIO()
+    qr_img.save(buffer, format="PNG")
+    qr_base64 = base64.b64encode(buffer.getvalue()).decode()
+
+    return render_template("liff_index.html", qr=qr_base64, session_id=session_id)
+
+@app.route("/top_page")
+def top_page():
+    username = session["username"]
+    return render_template("liff_login.html", username=username)
+
+@app.route("/logout")
+def logout():
+    session["status"] = "pending"
+    return redirect(url_for("login_page"))
+
+@app.route("/check_status/<user_id>")
+def check_status(user_id):
+    if user_id in session:
+        return jsonify({"status": session["status"], "redirect": url_for("top_page")})
+    return jsonify({"status": "not found", "redirect": url_for("login_page")})
 
 @app.route("/api/set-callback/<session_id>", methods=['POST'])
 def set_callback(session_id):
@@ -1107,6 +1140,37 @@ def set_callback(session_id):
 @app.route("/infer_entry")
 def infer_page():
     return render_template("liff_infer_entry.html")
+
+@app.route("/rebind-page")
+def rebind_page():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    return render_template("liff_rebind_qr.html")
+
+@app.route("/rebind-qr")
+def rebind_qr():
+    if "user_id" not in session:
+        return redirect(url_for("login"))
+
+    new_session_id = str(uuid.uuid4())
+
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE users SET qr_session_id=? where id=?
+    """, (new_session_id, session["user_id"], ))
+
+    conn.commit()
+    conn.close()
+
+    qr_data = f"https://{URL}:5000/qr-login/{new_session_id}"
+    img = qrcode.make(qr_data)
+    buffer = io.BytesIO()
+    img.save(buffer)
+    buffer.seek(0)
+
+    return send_file(buffer, mimetype="image/png")
 
 # === 處理訊息事件 ===
 @handler.add(MessageEvent, message=TextMessage)
@@ -1179,6 +1243,11 @@ def upload_individual(code):
         "status": "ok",
         "files": saved_files
     })
+@socketio.on("connect")
+def handle_connect():
+    user_id = session.get("user_id")
+    if user_id:
+        socketio.enter_room(request.sid, f"user_{user_id}")
 
 # === Flask Run + ngrok ===
 if __name__ == "__main__":
@@ -1211,4 +1280,5 @@ if __name__ == "__main__":
         TextSendMessage(text=f"模型已準備就緒！請幫我上傳一張口腔照片")
     )
     '''
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # app.run(host="0.0.0.0", port=5000, debug=True)
+    socketio.run(app, host=URL, debug=True)

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>QR 登入</title>
+  <title>使用者登入</title>
   <style>
     * {
       box-sizing: border-box;
@@ -96,18 +96,64 @@
   </style>
 </head>
 <body>
-  <div class="login-container">
-    <h2>帳號密碼登入</h2>
-    {% if error %}
-      <p class="error-message">{{ error }}</p>
-    {% endif %}
-    <form method="post" action="/login">
-      <label for="username">帳號：</label>
-      <input type="text" id="username" name="username" autocomplete="username" required />
-      <label for="password">密碼：</label>
-      <input type="password" id="password" name="password" autocomplete="current-password" required />
-      <button type="submit">登入</button>
-    </form>
-  </div>
+    <div class="login-container">
+        <h2>帳號密碼登入</h2>
+        {% if error %}
+            <p class="error-message">{{ error }}</p>
+        {% endif %}
+        <form method="POST" action="/login_redirect" id="login_form">
+            <label for="username">帳號：</label>
+            <input type="text" id="username" name="username" autocomplete="username" required />
+            <label for="password">密碼：</label>
+            <input type="password" id="password" name="password" autocomplete="current-password" required />
+            <button type="submit">登入</button>
+            <img src="data:image/png;base64,{{ qr }}" alt="QR Code">
+        </form>
+    </div>
+
+    <div id="modal-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script type="module">
+        import { loadModal, showModal } from "{{ url_for('static', filename='js/modal.js') }}";
+        loadModal("modal-container");
+
+        document.addEventListener("DOMContentLoaded", function () {
+            const session_id = "{{ session_id }}";
+            const login_form = document.getElementById("login_form");
+
+            if (login_form) {
+                login_form.addEventListener("submit", async function(e) {
+                    
+                    e.preventDefault();
+
+                    const formData = new FormData(login_form);
+                    
+                    const res1 = await fetch(`/login_redirect`, {
+                        method: "POST",
+                        body: formData
+                    });
+                    const data1 = await res1.json();
+
+                    console.log(data1);
+
+                    if (data1.status == "failed") {
+                        
+                        showModal("登入失敗，請再試一次", () => {
+                            window.location.href = data1.redirect;
+                            console.log("使用者點擊 OK");
+                        }, () => {
+                            window.location.href = data1.redirect;
+                            console.log("使用者點擊 Cancel");
+                        });
+
+                    } else if (data1.status == "success") {
+                        window.location.href = data1.redirect;
+                    }
+                });
+            }
+        });
+    </script>
 </body>
 </html>

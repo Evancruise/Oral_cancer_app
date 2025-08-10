@@ -1,0 +1,86 @@
+<!-- templates/liff_change_pwd.html -->
+{% extends "liff_base.html" %}
+
+{% block content %}
+<div class="header"> <i class="fas fa-key"></i> 快速密碼變更 </div>
+
+<body>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f6f8;
+            display: flex;
+            height: 100vh;
+        }
+
+        .change-pwd-container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+
+        h2 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-label {
+            margin: 8px 0 4px;
+            color: #555;
+            font-weight: bold;
+        }
+
+        .form-control {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            outline: none;
+            transition: border-color 0.2s ease;
+        }
+
+        .form-control:focus {
+            border-color: #007BFF;
+        }
+
+        .btn-submit {
+            margin-top: 15px;
+            padding: 10px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.2s ease;
+        }
+
+        .btn-submit:hover {
+            background-color: #0056b3;
+        }
+    </style>
+
+    <div class="change-pwd-container">
+        <form method="POST" action="/verify_change_pwd" id="changepwd_form">
+            <div class="form-group">
+                <label for="old_password" class="form-label">舊密碼</label>
+                <input type="password" id="old_password" name="old_password" class="form-control" required>
+
+                <label for="new_password" class="form-label">新密碼</label>
+                <input type="password" id="new_password" name="new_password" class="form-control" required>
+
+                <button type="submit" class="btn-submit">變更密碼</button>
+            </div>
+        </form>
+    </div>
+</body>
+
+{% endblock %}
