@@ -747,6 +747,7 @@
                                 const data_edit5 = await res_edit5.json();
 
                                 if (data_edit5.message === "not found") {
+                                    clearInterval(intervalId);
                                     showModal(`沒有此病患的辨識結果資料 (id=${current_patient_id})`, () => {
                                         console.log("使用者點擊 OK");
                                     }, () => {
