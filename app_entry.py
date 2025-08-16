@@ -1,5 +1,7 @@
 import os
 import io
+import cv2
+from PIL import Image
 import base64
 import uuid
 import psutil
@@ -12,6 +14,7 @@ import threading
 from zoneinfo import ZoneInfo
 from collections import defaultdict
 import redis, jwt, requests
+import numpy as np
 from linebot.exceptions import InvalidSignatureError
 
 from model_archive.model import YOLOv9_M4, DINOv2TokenSegmentation
@@ -21,7 +24,7 @@ from model_archive.utils_func import delete_files_in_folder
 
 from werkzeug.utils import secure_filename
 from pyngrok import ngrok
-from flask import Flask, render_template, request, redirect, session, url_for, jsonify, send_from_directory, abort
+from flask import Flask, render_template, request, redirect, session, url_for, jsonify, send_from_directory, abort, send_file
 from linebot import LineBotApi, WebhookHandler
 from flask_cors import CORS
 from linebot.models import (
@@ -1125,6 +1128,57 @@ def handle_message(event):
             event.reply_token,
             TextSendMessage(text='請掃描電腦端的 QR code 並點擊後自動登入')
         )
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    data = request.json["image"]
+    # 去掉 base64 開頭的 "data:image/jpeg;base64,"
+    data = data.split(",")[1]
+    img_bytes = base64.b64decode(data)
+    img = Image.open(io.BytesIO(img_bytes))
+    frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+
+    # 👉 這裡可以加人臉/口腔偵測
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+    for (x, y, w, h) in faces:
+        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+
+    # 回傳處理後影像
+    _, buffer = cv2.imencode(".jpg", frame)
+    return io.BytesIO(buffer)
+
+@app.route("/record/upload_result_individual", methods=["POST"])
+def upload_individual():
+    # 1️⃣ 從 request.files 拿檔案
+    file = request.files.get("file")
+    form = request.form
+
+    if file is None:
+        return {"error": "No file uploaded"}, 400
+
+    code = form["upload_img"]
+
+    # 2️⃣ 讀取成 OpenCV 影像
+    img = Image.open(file.stream)
+    frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+
+    # 3️⃣ 人臉偵測
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
+    for (x, y, w, h) in faces:
+        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+
+    # 4️⃣ 編碼成 JPEG 回傳
+    _, buffer = cv2.imencode(".jpg", frame)
+    return send_file(
+        io.BytesIO(buffer.tobytes()), 
+        mimetype="image/jpeg",
+        as_attachment=False,
+        download_name="result.jpg"
+    )
 
 # === Flask Run + ngrok ===
 if __name__ == "__main__":

@@ -34,6 +34,7 @@ export function bindImageUploadPreview(parts, scope = document) {
     parts.forEach(([code, label]) => {
         const selectBtn = scope.querySelector(`#SelectBtn_${code}`);
         const uploadInput = scope.querySelector(`#upload_${code}`);
+        const uploadInput2 = scope.querySelector(`#upload2_${code}`);
         const previewImg = scope.querySelector(`#preview_${code}`);
 
         uploadInput.addEventListener("change", (e) => {
@@ -52,11 +53,58 @@ export function bindImageUploadPreview(parts, scope = document) {
             }
         }
 
-        if (selectBtn && uploadInput) {
+        if (selectBtn && (uploadInput || uploadInput2)) {
             if (!selectBtn.dataset.bound) {
                 selectBtn.addEventListener("click", () => {
                     console.log("uploadInput觸發");
-                    uploadInput.click();
+
+                    showModal("請選擇要上傳圖片/實際拍攝", "modal-select", () => {
+                        uploadInput.click();
+                        console.log("使用者點擊 上傳圖片");
+                    }, () => {
+                        console.log("使用者點擊 實際拍攝");
+                        const photo_modal = document.getElementById("PhotoModal");
+
+                        if (photo_modal) {
+
+                            const modal = bootstrap.Modal.getInstance(photo_modal); // 取得已存在的 modal 實例
+                            if (modal) {
+                                modal.show();
+                            }
+                        }
+
+                        navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+                            document.getElementById("video").srcObject = stream;
+                        });
+
+                        document.getElementById("capture").addEventListener("click", () => {
+                            let video = document.getElementById("video");
+                            let canvas = document.getElementById("canvas");
+                            let ctx = canvas.getContext("2d");
+
+                            // 把攝影機影像畫到 canvas
+                            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                            // 轉成 Base64 傳給後端
+                            let dataURL = canvas.toDataURL("image/jpeg");
+
+                            fetch("/upload", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ image: dataURL })
+                            })
+                            .then(res => res.blob())
+                            .then(blob => {
+                                document.getElementById("result_img").src = URL.createObjectURL(blob);
+                                document.getElementById("upload_img").value = `preview_${code}`;
+
+                                if (previewImg) {
+                                    console.log("previewImg.src正常運作 (previewImg.src=", previewImg.src, ")");
+                                    previewImg.src = URL.createObjectURL(blob);
+                                }
+                            });
+                        });
+                    });
                 });
                 selectBtn.dataset.bound = "true";
             }
@@ -124,7 +172,40 @@ export function hideLoadingModal2() {
     if (modal) modal.hide();
 }
 
-export function loadModal(model_container_name) {
+export function SelectModal(model_container_name, leftmodal_msg="上傳影像", rightmodal_msg="拍照") {
+    const container = document.getElementById(model_container_name);
+    container.innerHTML = `
+      <div id="modal-select" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; 
+          background:rgba(0,0,0,0.4); z-index:10000; display:none; align-items:center; justify-content:center;">
+        <div style="background:white; padding:20px 30px; border-radius:10px; min-width:280px; max-width:400px; text-align:center; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+          <p id="modal-message" style="font-size:16px; margin-bottom:1.2rem;"></p>
+          <div style="display:flex; justify-content:center; gap:1rem;">
+            <button id="modal-ok-select" style="padding:0.6rem 1.2rem; background:#409EFF; color:white; border:none; border-radius:6px; cursor:pointer;">` + leftmodal_msg + `</button>
+            <button id="modal-cancel-select" style="padding:0.6rem 1.2rem; background:#e0e0e0; color:#333; border:none; border-radius:6px; cursor:pointer;" data-bs-toggle="modal" data-bs-target="#PhotoModal">` + rightmodal_msg + `</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    const modal = document.getElementById("modal-select");
+    const model_load = new bootstrap.Modal(modal);
+    const okBtn = document.getElementById("modal-ok-select");
+    const cancelBtn = document.getElementById("modal-cancel-select");
+
+    okBtn.onclick = () => {
+        if (modal.okCallback) modal.okCallback();
+        model_load.hide();
+        modal.style.display = "none";
+    };
+
+    cancelBtn.onclick = () => {
+        if (modal.cancelCallback) modal.cancelCallback();
+        model_load.hide();
+        modal.style.display = "none";
+    };
+}
+
+export function loadModal(model_container_name, leftmodal_msg="OK", rightmodal_msg="Cancel") {
     const container = document.getElementById(model_container_name);
     container.innerHTML = `
       <div id="modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; 
@@ -132,8 +213,8 @@ export function loadModal(model_container_name) {
         <div style="background:white; padding:20px 30px; border-radius:10px; min-width:280px; max-width:400px; text-align:center; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
           <p id="modal-message" style="font-size:16px; margin-bottom:1.2rem;"></p>
           <div style="display:flex; justify-content:center; gap:1rem;">
-            <button id="modal-ok" style="padding:0.6rem 1.2rem; background:#409EFF; color:white; border:none; border-radius:6px; cursor:pointer;">OK</button>
-            <button id="modal-cancel" style="padding:0.6rem 1.2rem; background:#e0e0e0; color:#333; border:none; border-radius:6px; cursor:pointer;">Cancel</button>
+            <button id="modal-ok" style="padding:0.6rem 1.2rem; background:#409EFF; color:white; border:none; border-radius:6px; cursor:pointer;">` + leftmodal_msg + `</button>
+            <button id="modal-cancel" style="padding:0.6rem 1.2rem; background:#e0e0e0; color:#333; border:none; border-radius:6px; cursor:pointer;">` + rightmodal_msg + `</button>
           </div>
         </div>
       </div>
@@ -275,8 +356,8 @@ export function loadingModal2(okCallback = null, cancelCallback = null) {
     new bootstrap.Modal(modal).show();
 }
 
-export function showModal(message, onOk = null, onCancel = null) {
-    const modal = document.getElementById("modal");
+export function showModal(message, modal_name="modal", onOk = null, onCancel = null) {
+    const modal = document.getElementById(modal_name);
     document.getElementById("modal-message").innerText = message;
     modal.okCallback = onOk;
     modal.cancelCallback = onCancel;
