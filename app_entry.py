@@ -933,7 +933,15 @@ def history():
 
     print("dict(grouped):", dict(grouped))
 
-    return render_template("liff_records.html", grouped_records=dict(grouped), user_id=session["user_id"], all_patient_ids=patient_id_dict)
+    cursor.execute("SELECT MAX(patient_id) FROM records")
+    max_id_row = cursor.fetchone()
+    max_id = int(max_id_row[0]) if max_id_row[0] else 0
+    new_patient_id = f"{max_id+1:04d}"
+
+    conn.commit()
+    conn.close()
+
+    return render_template("liff_records.html", grouped_records=dict(grouped), new_patient_id=new_patient_id, user_id=session["user_id"], all_patient_ids=patient_id_dict)
 
 qr_sessions = {}
 
