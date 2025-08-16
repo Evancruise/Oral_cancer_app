@@ -17,7 +17,7 @@ from linebot.exceptions import InvalidSignatureError
 from model_archive.model import YOLOv9_M4, DINOv2TokenSegmentation
 from model_archive.main_entry import model_trainvaltest_process
 from model_archive.config import Config
-from model_archive.utils import delete_files_in_folder
+from model_archive.utils_func import delete_files_in_folder
 
 from werkzeug.utils import secure_filename
 from pyngrok import ngrok

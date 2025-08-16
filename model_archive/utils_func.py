@@ -13,6 +13,7 @@ import seaborn as sns
 import json
 import os
 from datetime import datetime
+import shutil
 
 def compute_bbox_loss(bbox_deltas, proposals, t, num_classes=3, iou_thresh=0.5):
     # Step 1: IoU matching
@@ -214,6 +215,17 @@ def visualize_predictions(
     # cv2.destroyAllWindows()
 
     return img_np
+
+def delete_files_in_folder(dir=None):
+    for filename in os.listdir(dir):
+        file_path = os.path.join(dir, filename)
+        try:
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+        except Exception as e:
+            print('Failed to delete %s. Reason: %s' % (file_path, e))
 
 def convert_instance_to_class(mask, instance_to_class):
     class_mask = torch.zeros_like(mask)

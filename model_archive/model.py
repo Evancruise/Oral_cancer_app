@@ -13,7 +13,7 @@ import copy
 from torchvision.ops import roi_align
 from torchvision.models.detection.rpn import RegionProposalNetwork, RPNHead
 from torchvision.models.detection.rpn import AnchorGenerator
-from model_training.utils import apply_nms_to_proposals_with_index
+from model_archive.utils_func import apply_nms_to_proposals_with_index
 from peft import get_peft_model, LoraConfig, TaskType
 from peft.tuners.lora import LoraModel
 from monai.networks.blocks import UnetrBasicBlock

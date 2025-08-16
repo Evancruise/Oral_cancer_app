@@ -16,8 +16,8 @@ from torchmetrics.detection.mean_ap import MeanAveragePrecision
 import json
 import sqlite3
 
-from model_training.loss import yolov9_loss_fn_with_anchors, detection_loss
-from model_training.utils import draw_predictions, dice_score, visualize_predictions, \
+from model_archive.loss import yolov9_loss_fn_with_anchors, detection_loss
+from model_archive.utils_func import draw_predictions, dice_score, visualize_predictions, \
                  visualize_confusion_matrix, \
                  export_prediction
 
