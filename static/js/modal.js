@@ -1,4 +1,12 @@
 // static/js/modal.js
+
+const add_form = document.getElementById("add_form");
+const edit_form = document.getElementById("edit_form");
+
+const photo_modal = document.getElementById("PhotoModal");
+const captureBtn = photo_modal.querySelector("#captureBtn");
+const uploadBtn = photo_modal.querySelector("#uploadBtn");
+
 export function logUploadedFiles(scope = document) {
     for (let i = 1; i <= 8; i++) {
         const input = scope.querySelector(`#upload_${i}`);
@@ -29,17 +37,17 @@ export function bindImageResultPreview(parts, scope = document) {
 }
 
 function showPhotoModal(code, scope_name) {
-    const photo_modal = document.getElementById("PhotoModal");
-    const captureBtn = photo_modal.querySelector("#capture_TEMPLATE");
-    const uploadBtn = photo_modal.querySelector("#upload_TEMPLATE");
-    // 更新成動態 id
-    captureBtn.id = `capture_${code}`;
-    uploadBtn.id = `upload_${code}`;
-    // 暫存當前 code
+    // 只更新 dataset，不改 id 或重新綁事件
     photo_modal.dataset.currentCode = code;
     photo_modal.dataset.prev_modalname = scope_name;
+
+    // 打開 modal
     const modal = bootstrap.Modal.getOrCreateInstance(photo_modal);
     modal.show();
+
+    // 啟動攝影機（只打開一次也可以，視需求）
+    navigator.mediaDevices.getUserMedia({ video: true })
+        .then(stream => { document.getElementById("video").srcObject = stream; });
 }
 
 export function bindImageUploadPreview(parts, scope = document, scope_name = null) {
@@ -50,8 +58,9 @@ export function bindImageUploadPreview(parts, scope = document, scope_name = nul
         const uploadInput = scope.querySelector(`#upload_${code}`);
         const uploadInput2 = scope.querySelector(`#upload2_${code}`);
         const previewImg = scope.querySelector(`#preview_${code}`);
-        const captureBtn = document.getElementById(`capture_${code}`);
-
+        // const captureBtn = scope.querySelector(`#capture_${code}`);
+        
+        /*
         if (captureBtn) {
             captureBtn.addEventListener("click", (e) => {
                 e.preventDefault();
@@ -88,14 +97,46 @@ export function bindImageUploadPreview(parts, scope = document, scope_name = nul
                 }, "image/jpeg");
             });
         }
+        */
 
-        uploadInput.addEventListener("change", (e) => {
-          const file = e.target.files[0];
-          if (file) {
-              console.log(`選取檔案: ${file.name}`);
-          } else {
-              console.log("沒有選擇檔案");
-          }
+        captureBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            const code = e.target.dataset.code;  // 每次打開 modal 時更新 dataset.code
+
+            const video = document.getElementById("video");
+            const canvas = document.getElementById("canvas");
+            const result_img = document.getElementById("result_img");
+            const ctx = canvas.getContext("2d");
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            canvas.toBlob((blob) => {
+                const file = new File([blob], `capture_${code}.png`, { type: "image/png" });
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+
+                const input = document.createElement("input");
+                input.type = "file";
+                input.name = `file_${code}`;
+                input.files = dataTransfer.files;
+                input.hidden = true;
+
+                document.getElementById("upload_form").appendChild(input);
+            }, "image/png");
+
+            result_img.src = canvas.toDataURL("image/png");
+        });
+
+        uploadInput.addEventListener("change", async function(e) {
+            const file = e.target.files[0];
+
+            if (file) {
+                console.log(`選取檔案: ${file.name}`);
+            } else {
+                console.log("沒有選擇檔案");
+            }
         });
 
         if (previewImg && selectBtn) {
@@ -132,44 +173,12 @@ export function bindImageUploadPreview(parts, scope = document, scope_name = nul
                         navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
                             document.getElementById("video").srcObject = stream;
                         });
-                        
-                        /*
-                        captureBtn.addEventListener("click", (e) => {
-                            e.preventDefault();
-
-                            const ctx = canvas.getContext("2d");
-                            canvas.width = video.videoWidth;
-                            canvas.height = video.videoHeight;
-                            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                            // 顯示預覽
-                            const dataURL = canvas.toDataURL("image/jpeg");
-                            result_img.src = dataURL;
-
-                            // 把 dataURL 轉成 Blob 並塞到 FormData
-                            canvas.toBlob((blob) => {
-                                const file = new File([blob], "capture.jpg", { type: "image/jpeg" });
-
-                                // 建立一個 <input type="file"> 的替代方案
-                                const dataTransfer = new DataTransfer();
-                                dataTransfer.items.add(file);
-
-                                // 動態塞進 form
-                                let input = document.createElement("input");
-                                input.type = "file";
-                                input.name = "file";
-                                input.files = dataTransfer.files;
-                                input.hidden = true;
-
-                                document.getElementById("upload_form").appendChild(input);
-                            }, "image/jpeg");
-                        });
-                        */
                     });
                 });
                 selectBtn.dataset.bound = "true";
             }
-
+            
+            /*
             if (!uploadInput.dataset.bound) {
                 uploadInput.addEventListener("change", (e) => {
                     const file = e.target.files[0];
@@ -187,6 +196,129 @@ export function bindImageUploadPreview(parts, scope = document, scope_name = nul
                 });
                 uploadInput.dataset.bound = "true";
             }
+            */
+
+            function previewFile(input) {
+                input.addEventListener("change", async function(e) {
+                    const file = e.target.files[0];
+                    console.log("file:", file);
+                    if (file) {
+                        
+                        // 建立 FormData，加入 file
+                        let formData = new FormData();
+                        // 用 input.name 當 key，確保和 Flask 端對應
+                        formData.append(`pic${code}`, file);
+                        
+                        if (formData) {
+                            const res = await fetch(`/record/upload_result_individual/pic${code}`, {
+                                method: "POST",
+                                body: formData
+                            });
+                        
+                            const data = await res.json();
+
+                            if (data.status === "ok") {
+                                
+                                data.files.forEach(file => {
+                                    // field_name 是 file_1, file_2 這樣對應 preview_1, preview_2
+                                    console.log(file);
+                                    const code = file.field_name[3]; 
+                                    const previewImg = document.getElementById(`preview_${code}`);
+                                    const selectBtn = document.getElementById(`SelectBtn_${code}`);
+
+                                    if (previewImg && selectBtn) {
+                                        previewImg.src = file.path;  // 直接換成新上傳的圖
+                                        selectBtn.innerText = "已選擇";
+                                    }
+
+                                    let formData = null;
+
+                                    if (scope_name == "add") {
+                                        formData = new FormData(add_form);
+                                    } else if (scope_name == "edit") {
+                                        formData = new FormData(edit_form);
+                                    }
+
+                                    if (formData) {
+                                        if (formData.has(`pic${code}`)) {
+                                            formData.set(`pic${code}`, file);   // 覆蓋
+                                        } else {
+                                            formData.append(`pic${code}`, file); // 新增
+                                        }
+                                    }
+                                });
+                                
+                                /*
+                                for (const file of data.files) {
+                                    const code = file.field_name.split("_")[1];  // 建議這樣取比較保險
+                                    const previewImg = document.getElementById(`preview_${code}`);
+                                    const selectBtn = document.getElementById(`SelectBtn_${code}`);
+
+                                    if (previewImg && selectBtn) {
+                                        previewImg.src = file.path;  
+                                        selectBtn.innerText = "已選擇";
+                                    }
+
+                                    // 這裡關鍵：把後端的 path 轉成真正的 File
+                                    const response = await fetch(file.path);
+                                    const blob = await response.blob();
+                                    const realFile = new File([blob], `pic${code}.jpg`, { type: blob.type });
+
+                                    // 塞回 FormData
+                                    //if (!formData_new) {
+                                    //    formData_new = new FormData();
+                                    //}
+                                    //formData_new.set(`pic${code}`, realFile);  // 有就覆蓋，沒有就新增
+
+                                    let formData = null;
+
+                                    if (scope_name == "add") {
+                                        formData = new FormData(add_form);
+                                    } else if (scope_name == "edit") {
+                                        formData = new FormData(edit_form);
+                                    }
+
+                                    if (formData) {
+                                        if (formData.has(`pic${code}`)) {
+                                            formData.set(`pic${code}`, realFile);   // 覆蓋
+                                        } else {
+                                            formData.append(`pic${code}`, realFile); // 新增
+                                        }
+                                    }
+                                }
+                                */
+
+                                showModal("上傳影像成功", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                            } else {
+                                showModal("上傳影像失敗，請再拍攝一次", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                            }
+                        }
+
+                        const reader = new FileReader();
+
+                        reader.onload = function (e) {
+                            if (previewImg) {
+                                previewImg.src = e.target.result; // 把圖片嵌入 <img>
+                            }
+                            if (selectBtn) {
+                                selectBtn.innerText = "已選擇";
+                            }
+                        };
+                        reader.readAsDataURL(file);
+                    }
+                });
+            }
+
+            if (uploadInput) previewFile(uploadInput);
+            // if (uploadInput2) previewFile(uploadInput2);
         }
     });
 }

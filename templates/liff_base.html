@@ -73,6 +73,7 @@
             const captureBtn = document.getElementById("capture");
 
             let stream = null;
+            let formData_new = null;
 
             const delete_modal = document.getElementById("viewRecordModal");
             const record_link = document.querySelectorAll(".record-link");
@@ -162,12 +163,13 @@
                     }
                 });
 
-                photo_modal.addEventListener("click", (e) => {
-                    if (e.target.id.startsWith("capture_")) {
+                photo_modal.addEventListener("click", async function(e) {
+                    if (e.target.id.startsWith("capture")) {
                         e.preventDefault();
 
                         const code = photo_modal.dataset.currentCode;
-                        // const prev_modal_name = photo_modal.dataset.prev_modalname;
+                        const prev_modal_name = photo_modal.dataset.prev_modalname;
+                        
                         const video = document.getElementById("video");
                         const canvas = document.getElementById("canvas");
                         const result_img = document.getElementById("result_img"); // modal 預覽
@@ -177,13 +179,12 @@
                         canvas.height = video.videoHeight;
                         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                        const dataURL = canvas.toDataURL("image/jpeg");
+                        const dataURL = canvas.toDataURL("image/png");
                         result_img.src = dataURL; // 更新 modal 的預覽
 
                         // 把 dataURL 轉成 Blob → 塞到 form
-                        /*
                         canvas.toBlob((blob) => {
-                            const file = new File([blob], `capture_${code}.jpg`, { type: "image/jpeg" });
+                            const file = new File([blob], `capture_${code}.png`, { type: "image/png" });
                             const dataTransfer = new DataTransfer();
                             dataTransfer.items.add(file);
 
@@ -193,12 +194,29 @@
                             input.files = dataTransfer.files;
                             input.hidden = true;
 
-                            document.getElementById("upload_form").appendChild(input);
-                        }, "image/jpeg");
-                        */
+                            upload_form.appendChild(input);
+
+                            if (prev_modal_name == "add" || prev_modal_name == "edit") {
+                                if (formData_new == null) {
+                                    formData_new = new FormData();
+                                }
+                            }
+
+                            if (formData_new) {
+                                if (formData_new.has(`pic${code}`)) {
+                                    formData_new.set(`pic${code}`, file);   // 覆蓋
+                                } else {
+                                    formData_new.append(`pic${code}`, file); // 新增
+                                }
+                            }
+
+                            for (const [key, value] of formData_new.entries()) {
+                                console.log(key, value);
+                            }
+                        }, "image/png");
                     }
 
-                    if (e.target.id.startsWith("upload_")) {
+                    if (e.target.id.startsWith("upload")) {
                         e.preventDefault();
 
                         const code = photo_modal.dataset.currentCode;
@@ -211,36 +229,163 @@
                         canvas.width = video.videoWidth;
                         canvas.height = video.videoHeight;
                         
-                        const dataURL = canvas.toDataURL("image/jpeg");
+                        // const dataURL = canvas.toDataURL("image/jpeg");
 
-                        const previewImg = document.getElementById(`preview_${code}`);
+                        /*const previewImg = document.getElementById(`preview_${code}`);
                         if (previewImg) {
-                            previewImg.src = dataURL;
+                            const modal = document.getElementById("viewRecordModal");
+                            modal.querySelector(`#preview_${code}`).src = dataURL;
+                        }*/
+
+                        // 把 dataURL 轉成 Blob → 塞到 form
+                        /*
+                        let formData = null;
+                        
+                        canvas.toBlob((blob) => {
+
+                            const file = new File([blob], `capture_${code}.jpg`, { type: "image/jpeg" });
+                            console.log("✔ File created:", file.name, file.size, file.type);
+
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.items.add(file);
+
+                            let input = document.createElement("input");
+                            input.type = "file";
+                            input.name = `pic_${code}`;
+                            input.files = dataTransfer.files;
+                            input.hidden = true;
+
+                            formData = new FormData();
+                            formData.append(`pic${code}`, file);
+
+                            let form = null;
+                            if (prev_modal_name === "add") {
+                                form = document.getElementById("add_form");
+                            } else if (prev_modal_name === "edit") {
+                                form = document.getElementById("edit_form");
+                            }
+
+                            const formData = new FormData(form);
+
+                            if (formData.has(`pic${code}`)) {
+                                formData.set(`pic${code}`, file);   // 覆蓋
+                                console.log(`覆蓋 FormData: pic_${code}`);
+                            } else {
+                                formData.append(`pic${code}`, file); // 新增
+                                console.log(`新增 FormData: pic_${code}`);
+                            }
+                        }, "image/jpeg");
+                        */
+
+                        function blobToFormData(canvas, code) {
+                            return new Promise((resolve) => {
+                                canvas.toBlob((blob) => {
+                                    const file = new File([blob], `capture_${code}.png`, { type: "image/png" });
+                                    console.log("✔ File created:", file.name, file.size, file.type);
+
+                                    const formData = new FormData();
+                                    // 注意 append 的第二個參數要是 file，不是 input.files
+                                    formData.append(`pic${code}`, file);
+
+                                    resolve(formData);
+                                }, "image/png");
+                            });
                         }
 
-                        showModal("上傳影像成功", () => {
-                            console.log("使用者點擊 OK");
-                            
-                            const modal = bootstrap.Modal.getInstance(photo_modal); // 取得已存在的 modal 實例
-                            if (modal) {
-                                modal.hide(); // 隱藏
+                        async function uploadCapturedImage(canvas, code) {
+
+                            if (!video.srcObject) return;
+
+                            canvas.width = video.videoWidth;
+                            canvas.height = video.videoHeight;
+
+                            const ctx = canvas.getContext("2d");
+                            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                            const formData = await blobToFormData(canvas, code);
+
+                            const res_upload = await fetch(`/record/upload_result_individual/pic${code}`, {
+                                method: "POST",
+                                body: formData
+                            });
+
+                            const data_upload = await res_upload.json();
+
+                            if (!data_upload) {
+                                throw new Error("回傳格式錯誤");
+                                return;
                             }
 
-                            let prev_modal = null;
+                            if (data_upload.status === "ok") {
 
-                            if (prev_modal_name == "edit") {
-                                prev_modal = bootstrap.Modal.getInstance(edit_modal);
-                            } else if (prev_modal_name == "add") {
-                                prev_modal = bootstrap.Modal.getInstance(add_modal);
+                                // data_upload.files.forEach(file => {
+                                for (const file of data_upload.files) {
+                                    // 假設 field_name 是 file_1, file_2 這樣對應 preview_1, preview_2
+                                    console.log(file);
+                                    const code = file.field_name[3];
+                                    const previewImg = document.getElementById(`preview_${code}`);
+                                    const selectBtn = document.getElementById(`SelectBtn_${code}`);
+                                    const response = await fetch(file.path);   // 向後端拿檔案
+                                    const blob = await response.blob();        // 轉成 Blob
+                                    const realFile = new File([blob], `capture_${code}.png`, { type: blob.type });
+
+                                    if (previewImg && selectBtn) {
+                                        previewImg.src = file.path;  // 直接換成新上傳的圖
+                                        selectBtn.innerText = "已選擇";
+                                    } 
+
+                                    if (prev_modal_name == "add" || prev_modal_name == "edit") {
+                                        if (formData_new == null) {
+                                            formData_new = new FormData();
+                                        }
+                                    }
+
+                                    if (formData_new) {
+                                        if (formData_new.has(`pic${code}`)) {
+                                            formData_new.set(`pic${code}`, realFile);   // 覆蓋
+                                        } else {
+                                            formData_new.append(`pic${code}`, realFile);
+                                        }
+                                    }
+
+                                    for (const [key, value] of formData_new.entries()) {
+                                        console.log(key, value);
+                                    }
+                                }
+
+                                showModal("上傳影像成功", () => {
+                                    console.log("使用者點擊 OK");
+                                    
+                                    const modal = bootstrap.Modal.getInstance(photo_modal); // 取得已存在的 modal 實例
+                                    if (modal) {
+                                        modal.hide(); // 隱藏
+                                    }
+
+                                    let prev_modal = null;
+
+                                    if (prev_modal_name == "edit") {
+                                        prev_modal = bootstrap.Modal.getInstance(edit_modal);
+                                    } else if (prev_modal_name == "add") {
+                                        prev_modal = bootstrap.Modal.getInstance(add_modal);
+                                    }
+
+                                    if (prev_modal) {
+                                        prev_modal.show();
+                                    }
+
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
+                            } else {
+                                showModal("上傳影像失敗，請再拍攝一次", () => {
+                                    console.log("使用者點擊 OK");
+                                }, () => {
+                                    console.log("使用者點擊 Cancel");
+                                });
                             }
+                        }
 
-                            if (prev_modal) {
-                                prev_modal.show();
-                            }
-
-                        }, () => {
-                            console.log("使用者點擊 Cancel");
-                        });
+                        await uploadCapturedImage(canvas, code);
                     }
                 });
 
@@ -524,6 +669,25 @@
                             }
                         }
 
+                        if (photo_modal) {
+                            // const code = photo_modal.dataset.currentCode;
+                            if (formData_new) {
+                                for (const [key, value] of formData_new.entries()) {
+                                    console.log(key, value);
+                                }
+                            
+                                for (let code = 1; code <= 8; code++) {
+                                    if (formData_new && formData_new.has(`pic${code}`)) {
+                                        formData.set(`pic${code}`, formData_new.get(`pic${code}`));
+                                    }
+                                }
+                            }
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+                        }
+
                         try {
 
                             if (!current_patient_id) {
@@ -603,6 +767,25 @@
                             }
                         }
 
+                        if (photo_modal) {
+                            // const code = photo_modal.dataset.currentCode;
+                            if (formData_new) {
+                                for (const [key, value] of formData_new.entries()) {
+                                    console.log(key, value);
+                                }
+
+                                for (let code = 1; code <= 8; code++) {
+                                    if (formData_new && formData_new.has(`pic${code}`)) {
+                                        formData.set(`pic${code}`, formData_new.get(`pic${code}`));
+                                    }
+                                }
+                            }
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+                        }
+
                         try {
 
                             if (!current_patient_id) {
@@ -679,6 +862,25 @@
                             if (key === "patient_id") {
                                 current_patient_id = value;
                             }
+                        }
+
+                        if (photo_modal) {
+                            // const code = photo_modal.dataset.currentCode;
+                            if (formData_new) {
+                                for (const [key, value] of formData_new.entries()) {
+                                    console.log(key, value);
+                                }
+
+                                for (let code = 1; code <= 8; code++) {
+                                    if (formData_new && formData_new.has(`pic${code}`)) {
+                                        formData.set(`pic${code}`, formData_new.get(`pic${code}`));
+                                    }
+                                }
+                            }
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
                         }
 
                         /*
@@ -991,6 +1193,25 @@
                             }
                         }
 
+                        if (photo_modal) {
+                            // const code = photo_modal.dataset.currentCode;
+                            if (formData_new) {
+                                for (const [key, value] of formData_new.entries()) {
+                                    console.log(key, value);
+                                }
+
+                                for (let code = 1; code <= 8; code++) {
+                                    if (formData_new && formData_new.has(`pic${code}`)) {
+                                        formData.set(`pic${code}`, formData_new.get(`pic${code}`));
+                                    }
+                                }
+                            }
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
+                        }
+
                         try {
                             const res_add = await fetch(`/record/new/{{ user_id }}`, {
                                 method: "POST",
@@ -1065,6 +1286,25 @@
                             if (key === "patient_id") {
                                 current_patient_id = value;
                             }
+                        }
+
+                        if (photo_modal) {
+                            // const code = photo_modal.dataset.currentCode;
+                            if (formData_new) {
+                                for (const [key, value] of formData_new.entries()) {
+                                    console.log(key, value);
+                                }
+
+                                for (let code = 1; code <= 8; code++) {
+                                    if (formData_new && formData_new.has(`pic${code}`)) {
+                                        formData.set(`pic${code}`, formData_new.get(`pic${code}`));
+                                    }
+                                }
+                            }
+                        }
+
+                        for (const [key, value] of formData.entries()) {
+                            console.log(key, value);
                         }
 
                         /*

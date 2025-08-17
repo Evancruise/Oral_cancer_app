@@ -825,6 +825,15 @@ def visualize_predictions(
 
     return img_np
 
+def move_files_in_folders(src_dir, dst_dir):
+    for filename in os.listdir(src_dir):
+        src_path = os.path.join(src_dir, filename)
+        dst_path = os.path.join(dst_dir, filename)
+
+        if os.path.isfile(src_path):
+            shutil.move(src_path, dst_path)  # 直接搬移
+            print(f"Moved: {src_path} -> {dst_path}")
+
 def delete_files_in_folder(dir=None):
     for filename in os.listdir(dir):
         file_path = os.path.join(dir, filename)

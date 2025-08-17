@@ -20,7 +20,7 @@ from linebot.exceptions import InvalidSignatureError
 from model_archive.model import YOLOv9_M4, DINOv2TokenSegmentation
 from model_archive.main_entry import model_trainvaltest_process
 from model_archive.config import Config
-from model_archive.utils_func import delete_files_in_folder
+from model_archive.utils_func import delete_files_in_folder, move_files_in_folders
 
 from werkzeug.utils import secure_filename
 from pyngrok import ngrok
@@ -69,6 +69,8 @@ UPLOAD_DIR = "static/uploads"
 RESULT_DIR = "static/results"
 DB_PATH = os.getenv("DB_PATH")
 progress_path = os.path.join(LOG_DIR, "train_progress.json")
+
+UPLOAD_TEMP_DIR = "static/uploads/temp"
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp'}
 parts = ["pic1", "pic2", "pic3", "pic4", "pic5", "pic6", "pic7", "pic8"]
@@ -241,6 +243,10 @@ def extract_uploaded_images(files, patient_id):
     }
 
     print("uploaded_files:", uploaded_files)
+
+    if os.path.exists(f"{UPLOAD_TEMP_DIR}"):
+        move_files_in_folders(f"{UPLOAD_TEMP_DIR}", f"{UPLOAD_DIR}/{patient_id}")
+        delete_files_in_folder(f"{UPLOAD_TEMP_DIR}")
 
     if uploaded_files:
         # 回傳檔名字典（統一輸出格式）
@@ -1146,39 +1152,33 @@ def upload():
         cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
 
     # 回傳處理後影像
-    _, buffer = cv2.imencode(".jpg", frame)
+    _, buffer = cv2.imencode(".png", frame)
     return io.BytesIO(buffer)
 
-@app.route("/record/upload_result_individual", methods=["POST"])
-def upload_individual():
-    # 1️⃣ 從 request.files 拿檔案
-    file = request.files.get("file")
-    form = request.form
+@app.route("/record/upload_result_individual/pic<int:code>", methods=["POST"])
+def upload_individual(code):
+    saved_files = []
+    save_path = None
 
-    if file is None:
-        return {"error": "No file uploaded"}, 400
+    os.makedirs(f"{UPLOAD_TEMP_DIR}", exist_ok=True)
+    # request.files 是一個 dict，key 就是 <input name="...">
+    print("request.files.items():", dict(request.files.items()))
 
-    code = form["upload_img"]
+    for key, file in request.files.items():
+        if file and file.filename:
+            save_path = f"{UPLOAD_TEMP_DIR}" + '/' + file.filename
+            file.save(save_path)
 
-    # 2️⃣ 讀取成 OpenCV 影像
-    img = Image.open(file.stream)
-    frame = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+            saved_files.append({
+                "field_name": key,
+                "filename": file.filename,
+                "path": save_path
+            })
 
-    # 3️⃣ 人臉偵測
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-    faces = face_cascade.detectMultiScale(gray, 1.3, 5)
-    for (x, y, w, h) in faces:
-        cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-
-    # 4️⃣ 編碼成 JPEG 回傳
-    _, buffer = cv2.imencode(".jpg", frame)
-    return send_file(
-        io.BytesIO(buffer.tobytes()), 
-        mimetype="image/jpeg",
-        as_attachment=False,
-        download_name="result.jpg"
-    )
+    return jsonify({
+        "status": "ok",
+        "files": saved_files
+    })
 
 # === Flask Run + ngrok ===
 if __name__ == "__main__":
