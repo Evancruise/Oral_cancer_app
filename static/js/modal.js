@@ -4,8 +4,6 @@ const add_form = document.getElementById("add_form");
 const edit_form = document.getElementById("edit_form");
 
 const photo_modal = document.getElementById("PhotoModal");
-const captureBtn = photo_modal.querySelector("#captureBtn");
-const uploadBtn = photo_modal.querySelector("#uploadBtn");
 
 export function logUploadedFiles(scope = document) {
     for (let i = 1; i <= 8; i++) {
@@ -59,6 +57,7 @@ export function bindImageUploadPreview(parts, scope = document, scope_name = nul
         const uploadInput2 = scope.querySelector(`#upload2_${code}`);
         const previewImg = scope.querySelector(`#preview_${code}`);
         // const captureBtn = scope.querySelector(`#capture_${code}`);
+        const captureBtn = photo_modal.querySelector("#captureBtn");
         
         /*
         if (captureBtn) {
@@ -98,7 +97,7 @@ export function bindImageUploadPreview(parts, scope = document, scope_name = nul
             });
         }
         */
-
+       
         captureBtn.addEventListener("click", (e) => {
             e.preventDefault();
             const code = e.target.dataset.code;  // 每次打開 modal 時更新 dataset.code

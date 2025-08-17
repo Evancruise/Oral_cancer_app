@@ -142,14 +142,19 @@
                         
                         showModal("登入失敗，請再試一次", () => {
                             window.location.href = data1.redirect;
-                            console.log("使用者點擊 OK");
                         }, () => {
                             window.location.href = data1.redirect;
-                            console.log("使用者點擊 Cancel");
                         });
 
+                        // 保險起見，N 秒後自動跳轉
+                        setTimeout(() => {
+                            window.location.href = data1.redirect;
+                        }, 15000);
+
                     } else if (data1.status == "success") {
+                        console.log("準備跳轉到:", data1.redirect);
                         window.location.href = data1.redirect;
+                        console.log("跳轉命令已發出");
                     }
                 });
             }
