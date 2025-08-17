@@ -83,12 +83,12 @@
             const patientStatusMap = {};
 
             if (edit_form) {
-                bindImageUploadPreview(parts, edit_form);
+                bindImageUploadPreview(parts, edit_form, "edit");
                 logUploadedFiles(edit_form);
             }
 
             if (add_form) {
-                bindImageUploadPreview(parts, add_form);
+                bindImageUploadPreview(parts, add_form, "add");
                 logUploadedFiles(add_form);
             }
 
@@ -162,6 +162,88 @@
                     }
                 });
 
+                photo_modal.addEventListener("click", (e) => {
+                    if (e.target.id.startsWith("capture_")) {
+                        e.preventDefault();
+
+                        const code = photo_modal.dataset.currentCode;
+                        // const prev_modal_name = photo_modal.dataset.prev_modalname;
+                        const video = document.getElementById("video");
+                        const canvas = document.getElementById("canvas");
+                        const result_img = document.getElementById("result_img"); // modal 預覽
+
+                        const ctx = canvas.getContext("2d");
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                        const dataURL = canvas.toDataURL("image/jpeg");
+                        result_img.src = dataURL; // 更新 modal 的預覽
+
+                        // 把 dataURL 轉成 Blob → 塞到 form
+                        /*
+                        canvas.toBlob((blob) => {
+                            const file = new File([blob], `capture_${code}.jpg`, { type: "image/jpeg" });
+                            const dataTransfer = new DataTransfer();
+                            dataTransfer.items.add(file);
+
+                            let input = document.createElement("input");
+                            input.type = "file";
+                            input.name = `file_${code}`;
+                            input.files = dataTransfer.files;
+                            input.hidden = true;
+
+                            document.getElementById("upload_form").appendChild(input);
+                        }, "image/jpeg");
+                        */
+                    }
+
+                    if (e.target.id.startsWith("upload_")) {
+                        e.preventDefault();
+
+                        const code = photo_modal.dataset.currentCode;
+                        const prev_modal_name = photo_modal.dataset.prev_modalname;
+
+                        const canvas = document.getElementById("canvas");
+                        const result_img = document.getElementById("result_img"); // modal 預覽
+
+                        const ctx = canvas.getContext("2d");
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        
+                        const dataURL = canvas.toDataURL("image/jpeg");
+
+                        const previewImg = document.getElementById(`preview_${code}`);
+                        if (previewImg) {
+                            previewImg.src = dataURL;
+                        }
+
+                        showModal("上傳影像成功", () => {
+                            console.log("使用者點擊 OK");
+                            
+                            const modal = bootstrap.Modal.getInstance(photo_modal); // 取得已存在的 modal 實例
+                            if (modal) {
+                                modal.hide(); // 隱藏
+                            }
+
+                            let prev_modal = null;
+
+                            if (prev_modal_name == "edit") {
+                                prev_modal = bootstrap.Modal.getInstance(edit_modal);
+                            } else if (prev_modal_name == "add") {
+                                prev_modal = bootstrap.Modal.getInstance(add_modal);
+                            }
+
+                            if (prev_modal) {
+                                prev_modal.show();
+                            }
+
+                        }, () => {
+                            console.log("使用者點擊 Cancel");
+                        });
+                    }
+                });
+
                 // 拍攝影像
                 /*
                 captureBtn.addEventListener("click", () => {
@@ -184,6 +266,7 @@
                 });
                 */
 
+                /*
                 captureBtn.addEventListener("click", (e) => {
                     e.preventDefault();
 
@@ -214,40 +297,7 @@
                         document.getElementById("upload_form").appendChild(input);
                     }, "image/jpeg");
                 });
-
-                document.getElementById("upload").addEventListener("click", (e) => {
-                    e.preventDefault();
-
-                    const ctx = canvas.getContext("2d");
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                    canvas.toBlob((blob) => {
-                        const formData = new FormData(upload_form);
-                        formData.append("file", blob, "capture.jpg");
-
-                        fetch("/record/upload_result_individual", {
-                            method: "POST",
-                            body: formData
-                        })
-                        .then(res => res.json())
-                        .then(data => {
-
-                            const modal = bootstrap.Modal.getInstance(photo_modal); // 取得已存在的 modal 實例
-                            if (modal) {
-                                modal.hide(); // 隱藏
-                            }
-
-                            showModal("上傳成功:", () => {
-                                console.log("使用者點擊 OK");
-                            }, () => {
-                                console.log("使用者點擊 Cancel");
-                            });
-                        })
-                        .catch(err => console.error("上傳失敗:", err));
-                    }, "image/jpeg");
-                    });
+                */
             }
 
             if (delete_modal) {

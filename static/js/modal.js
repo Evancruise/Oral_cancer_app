@@ -28,7 +28,21 @@ export function bindImageResultPreview(parts, scope = document) {
     });
 }
 
-export function bindImageUploadPreview(parts, scope = document) {
+function showPhotoModal(code, scope_name) {
+    const photo_modal = document.getElementById("PhotoModal");
+    const captureBtn = photo_modal.querySelector("#capture_TEMPLATE");
+    const uploadBtn = photo_modal.querySelector("#upload_TEMPLATE");
+    // 更新成動態 id
+    captureBtn.id = `capture_${code}`;
+    uploadBtn.id = `upload_${code}`;
+    // 暫存當前 code
+    photo_modal.dataset.currentCode = code;
+    photo_modal.dataset.prev_modalname = scope_name;
+    const modal = bootstrap.Modal.getOrCreateInstance(photo_modal);
+    modal.show();
+}
+
+export function bindImageUploadPreview(parts, scope = document, scope_name = null) {
     console.log("bindImageUploadPreview() called with scope:", scope);
 
     parts.forEach(([code, label]) => {
@@ -36,6 +50,44 @@ export function bindImageUploadPreview(parts, scope = document) {
         const uploadInput = scope.querySelector(`#upload_${code}`);
         const uploadInput2 = scope.querySelector(`#upload2_${code}`);
         const previewImg = scope.querySelector(`#preview_${code}`);
+        const captureBtn = document.getElementById(`capture_${code}`);
+
+        if (captureBtn) {
+            captureBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+
+                const video = document.getElementById("video");
+                const canvas = document.getElementById("canvas");
+                const result_img = document.getElementById("result_img");
+
+                const ctx = canvas.getContext("2d");
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                // 顯示預覽
+                const dataURL = canvas.toDataURL("image/jpeg");
+                result_img.src = dataURL;
+
+                // 把 dataURL 轉成 Blob 並塞到 FormData
+                canvas.toBlob((blob) => {
+                    const file = new File([blob], "capture.jpg", { type: "image/jpeg" });
+
+                    // 建立一個 <input type="file"> 的替代方案
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(file);
+
+                    // 動態塞進 form
+                    let input = document.createElement("input");
+                    input.type = "file";
+                    input.name = `file_${code}`; // ★ 與 code 綁定
+                    input.files = dataTransfer.files;
+                    input.hidden = true;
+
+                    document.getElementById("upload_form").appendChild(input);
+                }, "image/jpeg");
+            });
+        }
 
         uploadInput.addEventListener("change", (e) => {
           const file = e.target.files[0];
@@ -58,11 +110,12 @@ export function bindImageUploadPreview(parts, scope = document) {
                 selectBtn.addEventListener("click", () => {
                     console.log("uploadInput觸發");
 
-                    showModal("請選擇要上傳圖片/實際拍攝", "modal-select", () => {
+                    showSelectModal("請選擇要上傳圖片/實際拍攝", () => {
                         uploadInput.click();
                         console.log("使用者點擊 上傳圖片");
                     }, () => {
                         console.log("使用者點擊 實際拍攝");
+                        /*
                         const photo_modal = document.getElementById("PhotoModal");
 
                         if (photo_modal) {
@@ -72,38 +125,46 @@ export function bindImageUploadPreview(parts, scope = document) {
                                 modal.show();
                             }
                         }
+                        */
+                        
+                        showPhotoModal(code, scope_name);
 
                         navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
                             document.getElementById("video").srcObject = stream;
                         });
+                        
+                        /*
+                        captureBtn.addEventListener("click", (e) => {
+                            e.preventDefault();
 
-                        document.getElementById("capture").addEventListener("click", () => {
-                            let video = document.getElementById("video");
-                            let canvas = document.getElementById("canvas");
-                            let ctx = canvas.getContext("2d");
-
-                            // 把攝影機影像畫到 canvas
+                            const ctx = canvas.getContext("2d");
+                            canvas.width = video.videoWidth;
+                            canvas.height = video.videoHeight;
                             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                            // 轉成 Base64 傳給後端
-                            let dataURL = canvas.toDataURL("image/jpeg");
+                            // 顯示預覽
+                            const dataURL = canvas.toDataURL("image/jpeg");
+                            result_img.src = dataURL;
 
-                            fetch("/upload", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ image: dataURL })
-                            })
-                            .then(res => res.blob())
-                            .then(blob => {
-                                document.getElementById("result_img").src = URL.createObjectURL(blob);
-                                document.getElementById("upload_img").value = `preview_${code}`;
+                            // 把 dataURL 轉成 Blob 並塞到 FormData
+                            canvas.toBlob((blob) => {
+                                const file = new File([blob], "capture.jpg", { type: "image/jpeg" });
 
-                                if (previewImg) {
-                                    console.log("previewImg.src正常運作 (previewImg.src=", previewImg.src, ")");
-                                    previewImg.src = URL.createObjectURL(blob);
-                                }
-                            });
+                                // 建立一個 <input type="file"> 的替代方案
+                                const dataTransfer = new DataTransfer();
+                                dataTransfer.items.add(file);
+
+                                // 動態塞進 form
+                                let input = document.createElement("input");
+                                input.type = "file";
+                                input.name = "file";
+                                input.files = dataTransfer.files;
+                                input.hidden = true;
+
+                                document.getElementById("upload_form").appendChild(input);
+                            }, "image/jpeg");
                         });
+                        */
                     });
                 });
                 selectBtn.dataset.bound = "true";
@@ -178,10 +239,10 @@ export function SelectModal(model_container_name, leftmodal_msg="上傳影像", 
       <div id="modal-select" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; 
           background:rgba(0,0,0,0.4); z-index:10000; display:none; align-items:center; justify-content:center;">
         <div style="background:white; padding:20px 30px; border-radius:10px; min-width:280px; max-width:400px; text-align:center; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
-          <p id="modal-message" style="font-size:16px; margin-bottom:1.2rem;"></p>
+          <p id="modal-message" style="font-size:16px; margin-bottom:1.2rem;"> 請選擇要上傳影像還是拍照? </p>
           <div style="display:flex; justify-content:center; gap:1rem;">
-            <button id="modal-ok-select" style="padding:0.6rem 1.2rem; background:#409EFF; color:white; border:none; border-radius:6px; cursor:pointer;">` + leftmodal_msg + `</button>
-            <button id="modal-cancel-select" style="padding:0.6rem 1.2rem; background:#e0e0e0; color:#333; border:none; border-radius:6px; cursor:pointer;" data-bs-toggle="modal" data-bs-target="#PhotoModal">` + rightmodal_msg + `</button>
+            <button id="modal-ok-select">` + leftmodal_msg + `</button>
+            <button id="modal-cancel-select" data-bs-toggle="modal" data-bs-target="#PhotoModal">` + rightmodal_msg + `</button>
           </div>
         </div>
       </div>
@@ -356,8 +417,16 @@ export function loadingModal2(okCallback = null, cancelCallback = null) {
     new bootstrap.Modal(modal).show();
 }
 
-export function showModal(message, modal_name="modal", onOk = null, onCancel = null) {
-    const modal = document.getElementById(modal_name);
+export function showModal(message, onOk = null, onCancel = null) {
+    const modal = document.getElementById("modal");
+    document.getElementById("modal-message").innerText = message;
+    modal.okCallback = onOk;
+    modal.cancelCallback = onCancel;
+    modal.style.display = "flex";
+}
+
+export function showSelectModal(message, onOk = null, onCancel = null) {
+    const modal = document.getElementById("modal-select");
     document.getElementById("modal-message").innerText = message;
     modal.okCallback = onOk;
     modal.cancelCallback = onCancel;
