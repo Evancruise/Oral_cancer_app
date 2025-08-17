@@ -5,6 +5,7 @@ import os
 import json
 import torch.nn.functional as F
 # from dinov2.models.vision_transformer import vit_large
+import torchvision
 from torchvision.models.detection.image_list import ImageList
 from transformers import SwinModel, SwinConfig, CLIPTextModel, CLIPVisionModel, CLIPProcessor, CLIPTokenizer, CLIPModel, AutoTokenizer, AutoModelForCausalLM
 from collections import OrderedDict
@@ -13,16 +14,806 @@ import copy
 from torchvision.ops import roi_align
 from torchvision.models.detection.rpn import RegionProposalNetwork, RPNHead
 from torchvision.models.detection.rpn import AnchorGenerator
-from model_training.utils import apply_nms_to_proposals_with_index
+from model_archive.utils_func import apply_nms_to_proposals_with_index
 from peft import get_peft_model, LoraConfig, TaskType
 from peft.tuners.lora import LoraModel
 from monai.networks.blocks import UnetrBasicBlock
 from einops import rearrange
 from PIL import Image
 import torchvision.transforms as T
-from torchvision.ops import RoIAlign
-import math
+import torchvision.ops as ops
+from torchvision.ops import RoIAlign, MultiScaleRoIAlign, box_iou
+import itertools
 
+import torchvision.models as models
+from collections import OrderedDict
+from torchvision.ops import FeaturePyramidNetwork
+
+class RPN(nn.Module):
+    def __init__(self, in_channels, anchors_per_location):
+        super().__init__()
+        self.shared_conv = nn.Conv2d(in_channels, 512, kernel_size=3, padding=1)
+        self.relu = nn.ReLU(inplace=True)
+
+        self.rpn_class_logits = nn.Conv2d(512, anchors_per_location * 2, kernel_size=1)
+        self.rpn_probs = nn.Softmax(dim=2)  # 在最後一個類別維度做softmax
+
+        self.rpn_bbox = nn.Conv2d(512, anchors_per_location * 4, kernel_size=1)
+        self.anchors_per_location = anchors_per_location
+
+    def forward(self, x):
+        batch_size = x.shape[0]
+        shared = self.relu(self.shared_conv(x))
+
+        rpn_class_logits = self.rpn_class_logits(shared)
+        # 調整維度，轉成 (batch, num_anchors, 2)
+        rpn_class_logits = rpn_class_logits.permute(0, 2, 3, 1).contiguous()
+        rpn_class_logits = rpn_class_logits.view(batch_size, -1, 2)
+
+        rpn_probs = self.rpn_probs(rpn_class_logits)
+
+        rpn_bbox = self.rpn_bbox(shared)
+        rpn_bbox = rpn_bbox.permute(0, 2, 3, 1).contiguous()
+        rpn_bbox = rpn_bbox.view(batch_size, -1, 4)
+
+        return rpn_class_logits, rpn_probs, rpn_bbox
+    
+class ResNetBackboneWithFPN(nn.Module):
+    def __init__(self, out_channels=256, pretrained=True):
+        super().__init__()
+        resnet = models.resnet50(pretrained=pretrained)
+
+        # 利用ResNet層輸出C2,C3,C4,C5特徵圖 (layer1-layer4對應)
+        self.stem = nn.Sequential(
+            resnet.conv1,
+            resnet.bn1,
+            resnet.relu,
+            resnet.maxpool
+        )
+        self.layer1 = resnet.layer1  # C2
+        self.layer2 = resnet.layer2  # C3
+        self.layer3 = resnet.layer3  # C4
+        self.layer4 = resnet.layer4  # C5
+
+        # FPN 預設輸入channels
+        in_channels_list = [
+            256,  # layer1輸出channel
+            512,  # layer2輸出channel
+            1024, # layer3輸出channel
+            2048, # layer4輸出channel
+        ]
+        self.fpn = FeaturePyramidNetwork(
+            in_channels_list=in_channels_list,
+            out_channels=out_channels
+        )
+
+    def forward(self, x):
+        c1 = self.stem(x)       # 下采樣一次
+        c2 = self.layer1(c1)    # stride 4
+        c3 = self.layer2(c2)    # stride 8
+        c4 = self.layer3(c3)    # stride 16
+        c5 = self.layer4(c4)    # stride 32
+
+        features = OrderedDict()
+        features['0'] = c2
+        features['1'] = c3
+        features['2'] = c4
+        features['3'] = c5
+
+        fpn_outs = self.fpn(features)
+        # fpn_outs 是dict，key是'0','1','2','3'，value是對應fpn feature map
+        return fpn_outs
+
+class AnchorGenerator:
+    def __init__(self, sizes, ratios, feature_stride):
+        self.sizes = sizes
+        self.ratios = ratios
+        self.stride = feature_stride
+
+    def generate_anchors(self, feature_map_size, image_size):
+        """
+        feature_map_size: (H, W)
+        image_size: (H_img, W_img)
+        回傳 [N, 4] anchors: [x1, y1, x2, y2]
+        """
+        anchors = []
+        fm_h, fm_w = feature_map_size
+        for y in range(fm_h):
+            for x in range(fm_w):
+                center_x = x * self.stride + self.stride // 2
+                center_y = y * self.stride + self.stride // 2
+                for size in self.sizes:
+                    for ratio in self.ratios:
+                        w = size * (ratio ** 0.5)
+                        h = size / (ratio ** 0.5)
+                        x1 = center_x - w / 2
+                        y1 = center_y - h / 2
+                        x2 = center_x + w / 2
+                        y2 = center_y + h / 2
+                        anchors.append([x1, y1, x2, y2])
+        return torch.tensor(anchors, dtype=torch.float32)
+    
+class MaskRCNNBackboneWithRPN(nn.Module):
+
+    def __init__(self, top_down_pyramid_size=256, rpn_anchor_ratios=[0.5, 1, 2], rpn_anchor_scales=[32, 64, 128], fpn_downscale_ratio=16):
+        super().__init__()
+        self.backbone_fpn = ResNetBackboneWithFPN(out_channels=top_down_pyramid_size)
+        self.rpn = RPN(in_channels=top_down_pyramid_size,
+                       anchors_per_location=len(rpn_anchor_ratios))
+        
+        self.anchor_generator = AnchorGenerator(
+            sizes=rpn_anchor_scales,
+            ratios=rpn_anchor_ratios,
+            feature_stride=fpn_downscale_ratio  # e.g. 16
+        )
+    
+    def get_anchors(self, feature_map_shape, image_shape):
+        """
+        feature_map_shape: [B, C, H, W] 取其 H, W 作為輸出特徵圖大小
+        image_shape: [B, 3, H, W] or (B, 3, H, W)
+        回傳 anchors: [N, 4]
+        """
+        _, _, feat_h, feat_w = feature_map_shape
+        anchors = self.anchor_generator.generate_anchors((feat_h, feat_w), image_shape[2:])
+        return anchors
+
+    def forward(self, images):
+        """
+        images: tensor (batch, C, H, W)
+        返回:
+          fpn_features: dict of feature maps (P2~P5)
+          rpn_outputs: rpn_class_logits, rpn_probs, rpn_bbox
+        """
+        fpn_features = self.backbone_fpn(images)
+
+        '''
+        # RPN 輸入是每個 FPN 特徵圖，通常對每層都會做 RPN，然後合併結果
+        rpn_class_logits_all = []
+        rpn_probs_all = []
+        rpn_bbox_all = []
+
+        for level_name in ['0', '1', '2', '3']:
+            feat = fpn_features[level_name]  # 每個feature map
+            rpn_class_logits, rpn_probs, rpn_bbox = self.rpn(feat)
+            rpn_class_logits_all.append(rpn_class_logits)
+            rpn_probs_all.append(rpn_probs)
+            rpn_bbox_all.append(rpn_bbox)
+
+        # Concatenate來自不同尺度的結果，shape (batch, sum_anchors, ...)
+        rpn_class_logits_all = torch.cat(rpn_class_logits_all, dim=1)
+        rpn_probs_all = torch.cat(rpn_probs_all, dim=1)
+        rpn_bbox_all = torch.cat(rpn_bbox_all, dim=1)
+
+        return fpn_features, (rpn_class_logits_all, rpn_probs_all, rpn_bbox_all)
+        '''
+        
+        return fpn_features
+
+class ProposalLayer(nn.Module):
+    def __init__(self, proposal_count=5, nms_threshold=0.7, min_size=16, image_shape=(512, 512)):
+        """
+        proposal_count: 產生的proposal數量上限 (如2000)
+        nms_threshold: NMS閾值 (如0.7)
+        min_size: proposals最小寬高限制，去除過小框
+        image_shape: tuple (H, W) 圖片大小，將proposal clip在圖片內
+        """
+        super().__init__()
+        self.proposal_count = proposal_count
+        self.nms_threshold = nms_threshold
+        self.min_size = min_size
+        self.image_shape = image_shape
+
+        # (rpn_probs, rpn_bbox, image_shape)
+    def forward(self, anchors, rpn_class_probs, rpn_bbox_deltas):
+        """
+        anchors: [num_anchors, 4] anchor boxes
+        rpn_class_probs: [batch, num_anchors, 2] 前景分數和背景分數，取前景分數 [:, :, 1]
+        rpn_bbox_deltas: [batch, num_anchors, 4]
+
+        返回:
+          proposals: [batch, proposal_count, 4]
+        """
+
+        batch_size = rpn_class_probs.shape[0]
+        proposals_batch = []
+
+        for i in range(batch_size):
+            scores = rpn_class_probs[i, :, 1]  # 前景分數
+            deltas = rpn_bbox_deltas[i]
+            proposals = apply_box_deltas(anchors, deltas)
+
+            # clip proposals 讓box stay在image邊界內
+            # proposals[:, 0] = proposals[:, 0].clamp(min=0, max=self.image_shape[1] - 1)
+            # proposals[:, 1] = proposals[:, 1].clamp(min=0, max=self.image_shape[0] - 1)
+            # proposals[:, 2] = proposals[:, 2].clamp(min=0, max=self.image_shape[1] - 1)
+            # proposals[:, 3] = proposals[:, 3].clamp(min=0, max=self.image_shape[0] - 1)
+
+            proposals = torch.stack([
+                proposals[:, 0].clamp(min=0, max=self.image_shape[1] - 1),
+                proposals[:, 1].clamp(min=0, max=self.image_shape[0] - 1),
+                proposals[:, 2].clamp(min=0, max=self.image_shape[1] - 1),
+                proposals[:, 3].clamp(min=0, max=self.image_shape[0] - 1)
+            ], dim=1)
+
+            # 移除太小的box
+            ws = proposals[:, 2] - proposals[:, 0]
+            hs = proposals[:, 3] - proposals[:, 1]
+            keep = (ws >= self.min_size) & (hs >= self.min_size)
+            proposals = proposals[keep]
+            scores = scores[keep]
+
+            # 根據前景分數排序，取前 pre_nms_topN 個
+            pre_nms_topN = min(6000, proposals.shape[0])  # 一般會設6000
+            scores, order = scores.sort(descending=True)
+            scores = scores[:pre_nms_topN]
+            proposals = proposals[order[:pre_nms_topN]]
+
+            # NMS過濾
+            keep_idx = ops.nms(proposals, scores, self.nms_threshold)
+            keep_idx = keep_idx[:self.proposal_count]
+
+            proposals = proposals[keep_idx]
+
+            # 補足proposal數量，不足則用0補齊
+            if proposals.shape[0] < self.proposal_count:
+                padding = torch.zeros((self.proposal_count - proposals.shape[0], 4), device=proposals.device)
+                proposals = torch.cat([proposals, padding], dim=0)
+
+            proposals_batch.append(proposals.unsqueeze(0))
+
+        proposals_batch = torch.cat(proposals_batch, dim=0)
+        return proposals_batch  # shape [batch, proposal_count, 4]
+
+class CascadeHeadStage(nn.Module):
+    def __init__(self, in_channels, pool_size, num_classes, fc_dim):
+        super().__init__()
+        self.pool_size = pool_size
+        self.num_classes = num_classes
+
+        self.fc1 = nn.Linear(in_channels * pool_size * pool_size, fc_dim)
+        self.fc2 = nn.Linear(fc_dim, fc_dim)
+
+        self.class_logits = nn.Linear(fc_dim, num_classes)
+        self.bbox_pred = nn.Linear(fc_dim, num_classes * 4)
+
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, roi_feat):
+        x = roi_feat.flatten(start_dim=1)  # shape: (N, C*pool_size*pool_size)
+        x = self.relu(self.fc1(x))
+        x = self.relu(self.fc2(x))
+
+        class_logits = self.class_logits(x)
+        bbox_deltas = self.bbox_pred(x)
+
+        return class_logits, bbox_deltas
+
+class CascadeRCNNHead(nn.Module):
+    def __init__(self, pool_size, num_classes=3, fc_dim=1024, stages=3):
+        super().__init__()
+        self.stages = stages
+        # self.roi_align = RoIAlign(output_size=pool_size, spatial_scale=1/16.0, sampling_ratio=2, aligned=True)
+        self.multi_roi_align_fpn = MultiScaleRoIAlign(
+            featmap_names=['0', '1', '2', '3'],  # 對應 FPN 層
+            output_size=7,
+            sampling_ratio=2
+        )
+        
+        self.heads = nn.ModuleList([
+            CascadeHeadStage(in_channels=256, pool_size=pool_size, num_classes=num_classes, fc_dim=fc_dim)
+            for _ in range(stages)
+        ])
+
+    def ensure_boxes_list(self, boxes, batch_size=None, device=None, dtype=torch.float32):
+        """
+        將 boxes 轉成 MultiScaleRoIAlign 所需的 List[Tensor] 格式。
+        支援輸入：
+        - List[Tensor] (直接回傳)
+        - Tensor[K,5] (batch_idx + x1,y1,x2,y2)
+        - Tensor[K,4] (視為 single-image，需提供 batch_size=1 或手動包成 list)
+        回傳: list_of_boxes, batch_size
+        """
+        # already a list-like of tensors
+        if isinstance(boxes, (list, tuple)):
+            return [b for b in boxes], (batch_size if batch_size is not None else len(boxes))
+
+        # Tensor case
+        if isinstance(boxes, torch.Tensor):
+            if boxes.dim() == 2 and boxes.size(1) == 5:
+                # format [K,5] -> split by batch_idx
+                if batch_size is None:
+                    batch_size = int(boxes[:,0].max().item()) + 1 if boxes.numel() > 0 else 1
+                boxes_list = []
+                for i in range(batch_size):
+                    m = boxes[:,0] == i
+                    b_i = boxes[m, 1:]
+                    boxes_list.append(b_i)
+                return boxes_list, batch_size
+
+            elif boxes.dim() == 2 and boxes.size(1) == 4:
+                # treat as single-image boxes
+                if batch_size is None or batch_size == 1:
+                    return [boxes], 1
+                else:
+                    raise ValueError("Received Tensor[N,4] but batch_size > 1. Provide List[Tensor] per image or Tensor[K,5] with batch indices.")
+
+        raise TypeError("Unsupported boxes format. Provide List[Tensor] or Tensor[K,5] or Tensor[N,4].")
+
+    def forward(self, proposals, feature_maps, image_meta=None):
+        """
+        proposals: [B, N, 4], bbox 格式是 (x1, y1, x2, y2)
+        feature_maps: FPN P2~P5 合併後的 feature map [B, C, H, W]
+        """
+
+        # 將 proposals 攤平為 list，每個 box 加上 batch index
+        batch_size, num_proposals, _ = proposals.shape
+        roi_feats_all = []
+        refined_proposals = proposals
+
+        image_shapes = [meta['original_shape'] for meta in image_meta]
+
+        all_class_logits, all_bbox_deltas, all_refined = [], [], []
+
+        for stage, head in enumerate(self.heads):
+            rois_with_batch_idx = []
+            for b in range(batch_size):
+                boxes = refined_proposals[b]
+                batch_inds = torch.full((boxes.shape[0], 1), b, dtype=torch.float32)
+                rois_with_batch_idx.append(torch.cat([batch_inds, boxes], dim=1))  # shape: [N, 5]
+            rois = torch.cat(rois_with_batch_idx, dim=0)  # [B*N, 5]
+
+            boxes_list, bs = self.ensure_boxes_list(rois, batch_size=batch_size)
+
+            pooled_feats = self.multi_roi_align_fpn(feature_maps, boxes_list, image_shapes=image_shapes)
+
+            # Pass through head
+            class_logits, bbox_deltas = head(pooled_feats)
+
+            # 儲存結果
+            all_class_logits.append(class_logits)
+            all_bbox_deltas.append(bbox_deltas)
+
+            # Refine boxes
+            class_ids = class_logits.argmax(dim=1)
+            box_deltas = bbox_deltas.view(-1, self.heads[stage].num_classes, 4)
+            selected_deltas = box_deltas[torch.arange(box_deltas.shape[0]), class_ids]
+
+            # 重新計算 proposal boxes
+            refined = apply_box_deltas(rois[:, 1:], selected_deltas)
+            refined = torch.clamp(refined, min=0.0)  # 可再加 clip 到 image_shapes
+            refined_proposals = refined.view(batch_size, num_proposals, 4)
+            all_refined.append(refined_proposals)
+
+        return all_class_logits, all_bbox_deltas, all_refined
+
+class DetectionTargetLayer(nn.Module):
+    def __init__(self, stage_iou_thresh, mask_size=28):
+        super().__init__()
+        self.iou_threshold = stage_iou_thresh  # e.g. 0.5, 0.6, 0.7
+        self.mask_size = mask_size
+
+    def forward(self, proposals, gt_boxes, gt_labels, gt_masks):
+        batch_size, num_proposals, _ = proposals.shape
+        device = proposals.device
+
+        mask_h, mask_w = self.mask_size[0], self.mask_size[1]
+        mask_dtype = gt_masks[0].dtype if len(gt_masks) > 0 and gt_masks[0].numel() > 0 else torch.float32
+
+        matched_labels = torch.zeros((batch_size, num_proposals), dtype=torch.long, device=device)
+        matched_deltas = torch.zeros((batch_size, num_proposals, 4), dtype=torch.float32, device=device)
+        matched_proposals = proposals.clone()
+        matched_gt_boxes = torch.zeros((batch_size, num_proposals, 4), dtype=torch.float32, device=device)
+        matched_gt_masks = torch.zeros((batch_size, num_proposals, mask_h, mask_w), dtype=mask_dtype, device=device)
+
+        for b in range(batch_size):
+            props = proposals[b]         # [N, 4]
+            gt_box = gt_boxes[b]         # [M, 4]
+            gt_cls = gt_labels[b]        # [M]
+
+            if len(gt_masks) <= b or gt_masks[b].numel() == 0:
+                continue
+
+            gt_mask = gt_masks[b]        # [M, H, W]
+
+            ious = box_iou(props, gt_box)  # [N, M]
+            max_iou, max_ids = ious.max(dim=1)
+
+            positive_idx = torch.nonzero(max_iou >= self.iou_threshold).squeeze(1)
+            if positive_idx.numel() == 0:
+                continue
+
+            matched_labels[b][positive_idx] = gt_cls[max_ids[positive_idx]]
+            matched_deltas[b][positive_idx] = encode_box(props[positive_idx], gt_box[max_ids[positive_idx]])
+            matched_gt_boxes[b][positive_idx] = gt_box[max_ids[positive_idx]]
+
+            for pi, gi in zip(positive_idx, max_ids[positive_idx]):
+                # gt_mask shape: [M, H, W]
+                m = gt_mask[gi].unsqueeze(0).unsqueeze(0).float()  # [1,1,H,W]
+
+                # Proposal box (x1,y1,x2,y2)
+                x1, y1, x2, y2 = props[pi].round().int()
+                # clamp 保證不超出 mask 尺寸 (W,H)
+                x1 = x1.clamp(0, gt_mask.shape[2]-1)
+                x2 = x2.clamp(0, gt_mask.shape[2]-1)
+                y1 = y1.clamp(0, gt_mask.shape[1]-1)
+                y2 = y2.clamp(0, gt_mask.shape[1]-1)
+
+                if x2 <= x1 or y2 <= y1:
+                    crop = torch.zeros((1,1,mask_h,mask_w), dtype=mask_dtype, device=device)
+                else:
+                    crop = m[:, :, y1:y2+1, x1:x2+1]  # 裁切 mask
+                    crop = F.interpolate(crop, size=(mask_h, mask_w), mode='bilinear', align_corners=False)
+
+                matched_gt_masks[b, pi] = crop.squeeze(0).squeeze(0)
+
+        return matched_proposals, matched_labels, matched_deltas, matched_gt_boxes, matched_gt_masks
+
+class MaskHead(nn.Module):
+    def __init__(self, in_channels, num_classes):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels, 256, 3, padding=1)
+        self.conv2 = nn.Conv2d(256, 256, 3, padding=1)
+        self.conv3 = nn.Conv2d(256, 256, 3, padding=1)
+        self.conv4 = nn.Conv2d(256, 256, 3, padding=1)
+        self.deconv = nn.ConvTranspose2d(256, 256, 2, stride=2)
+        self.predictor = nn.Conv2d(256, num_classes, 1)
+
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):  # x shape: [B*N, C, 14, 14]
+        x = self.relu(self.conv1(x))
+        x = self.relu(self.conv2(x))
+        x = self.relu(self.conv3(x))
+        x = self.relu(self.conv4(x))
+        x = self.relu(self.deconv(x))
+        return self.predictor(x)  # [B*N, num_classes, 28, 28]
+    
+class CascadeRCNN(nn.Module):
+    def __init__(self,
+                 num_classes=3,
+                 cascade_iou_threshold=[0.5, 0.6, 0.7], 
+                 rpn_anchor_ratios=[0.5, 1.0, 2.0], 
+                 fpn_out_channels=256, 
+                 num_stages=3,
+                 fpn_downscale_ratio=16,
+                 pool_size=7,
+                 fc_dim=1024,
+                 img_size=(384,512)):
+        
+        super().__init__()
+        self.num_stages = num_stages
+        self.rpn_anchor_ratios = rpn_anchor_ratios
+        self.img_size = img_size
+
+        # 每層 stride（對應 FPN 層）
+        self.fpn_strides = [4, 8, 16, 32]
+        # 每層的 scale 設定
+        self.fpn_scales = [
+            [8],   # P2 → 小物件
+            [16],  # P3 → 中小物件
+            [32],  # P4 → 中大物件
+            [64]   # P5 → 大物件
+        ]
+
+        # Backbone + FPN (輸出單一融合 feature_map)
+        self.backbone_fpn = MaskRCNNBackboneWithRPN()
+
+        # RPN
+        self.rpn = RPN(
+            in_channels=fpn_out_channels,
+            anchors_per_location=len(rpn_anchor_ratios)
+        )
+
+        # Proposal
+        self.proposal_layer = ProposalLayer(image_shape=self.img_size)
+
+        # Mask Head
+        self.fpn_downscale_ratio = fpn_downscale_ratio
+        self.mask_roi_align = RoIAlign(
+            output_size=(14, 14), 
+            spatial_scale=1.0 / fpn_downscale_ratio, 
+            sampling_ratio=2, 
+            aligned=True)
+        
+        self.mask_head = nn.Sequential(
+            nn.Conv2d(fpn_out_channels, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose2d(256, 256, kernel_size=2, stride=2),  # upsample to 28x28
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256, num_classes, kernel_size=1)  # [B*N, num_classes, 28, 28]
+        )
+
+        '''
+        self.mask_head = nn.Sequential(
+            nn.Conv2d(fpn_out_channels, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+
+            nn.ConvTranspose2d(256, 256, kernel_size=2, stride=2),  # 14->28
+            nn.ReLU(inplace=True),
+
+            nn.ConvTranspose2d(256, 256, kernel_size=2, stride=2),  # 28->56
+            nn.ReLU(inplace=True),
+
+            nn.ConvTranspose2d(256, 256, kernel_size=2, stride=2),  # 56->112
+            nn.ReLU(inplace=True),
+
+            nn.Conv2d(256, num_classes, kernel_size=1),  # [B*N, num_classes, 112, 112]
+        )
+        '''
+
+        # Cascade Head
+        self.cascade_head = CascadeRCNNHead(
+            pool_size=pool_size,
+            num_classes=num_classes,
+            fc_dim=fc_dim,
+            stages=3
+        )
+
+        # 每階段 Target Layer
+        self.target_layers = nn.ModuleList([
+            DetectionTargetLayer(stage_iou_thresh, self.img_size)
+            for stage_iou_thresh in cascade_iou_threshold  # e.g., [0.5, 0.6, 0.7]
+        ])
+
+    def decode_final_boxes(self, final_proposals, final_bbox_deltas, final_logits):
+        scores = F.softmax(final_logits, dim=1)
+        labels = scores.argmax(dim=1)
+        scores_max = scores.max(dim=1).values
+
+        boxes = decode_boxes(
+            final_proposals.view(-1, 4),
+            final_bbox_deltas.view(-1, final_logits.shape[-1] * 4),
+            labels
+        )
+
+        return boxes, labels, scores_max
+
+    def generate_base_anchors(self, base_size=16, ratios=[0.5, 1.0, 2.0], scales=[8, 16, 32]):
+        """
+        生成一組 base anchors，中心在 (0, 0)
+        base_size: 單位 anchor 的基準邊長
+        ratios: 不同比例（寬/高）
+        scales: 不同大小的放縮比例
+        """
+        anchors = []
+        for ratio, scale in itertools.product(ratios, scales):
+            area = (base_size * scale) ** 2
+            area = torch.tensor(area, dtype=torch.float32)   # 確保是 Tensor
+            w = torch.sqrt(area / ratio)
+            h = w * ratio
+            anchors.append([-w / 2, -h / 2, w / 2, h / 2])
+        return torch.tensor(anchors)  # shape = [A, 4]
+
+    def shift_anchors(self, feature_height, feature_width, stride, base_anchors):
+        """
+        將 base anchors 平移到整個 feature map 上
+        """
+        shift_x = torch.arange(0, feature_width) * stride
+        shift_y = torch.arange(0, feature_height) * stride
+        shift_x, shift_y = torch.meshgrid(shift_x, shift_y, indexing="xy")
+
+        shifts = torch.stack([
+            shift_x.reshape(-1),
+            shift_y.reshape(-1),
+            shift_x.reshape(-1),
+            shift_y.reshape(-1)
+        ], dim=1)
+
+        # 加上 base_anchors → shape = [K*A, 4]
+        A = base_anchors.shape[0]
+        K = shifts.shape[0]
+        all_anchors = (
+            base_anchors.reshape((1, A, 4)) +
+            shifts.reshape((K, 1, 4))
+        )
+        return all_anchors.reshape((-1, 4))
+
+    def generate_anchors_for_feature_map(self, feature_map_shape, stride, ratios, scales):
+        """
+        給定 feature map 形狀與參數，生成對應的 anchors
+        """
+        H, W = feature_map_shape
+        base_anchors = self.generate_base_anchors(base_size=stride, ratios=ratios, scales=scales)
+        anchors = self.shift_anchors(H, W, stride, base_anchors)
+        return anchors
+
+    def generate_fpn_anchors(self, feature_maps, strides, ratios, scales_per_level):
+        """
+        為多層 FPN 生成 anchors
+        feature_maps: dict or OrderedDict, 每層特徵圖，例如 {'0': P2, '1': P3, ...}
+        strides: list, 每層的下採樣比例，例如 [4, 8, 16, 32]
+        ratios: list, anchor 寬高比
+        scales_per_level: list of list, 每層的 scale 設定
+        return: Tensor [總anchor數, 4]
+        """
+        all_anchors = []
+        for idx, (name, feat) in enumerate(feature_maps.items()):
+            _, _, H, W = feat.shape
+            stride = strides[idx]
+            scales = scales_per_level[idx]
+
+            base_anchors = self.generate_base_anchors(base_size=stride, ratios=ratios, scales=scales)
+            anchors = self.shift_anchors(H, W, stride, base_anchors)
+            all_anchors.append(anchors)
+
+        return torch.cat(all_anchors, dim=0)
+
+    def forward(self, images, image_meta, gt_boxes=None, gt_labels=None, gt_masks=None, mode='train'):
+        """
+        mode: 'train', 'val', 'test'
+        """
+        batch_size, _, _, _ = images.shape
+
+        # === 1. Backbone FPN ===
+        feature_maps = self.backbone_fpn(images)
+
+        # === 2. Anchors 生成 ===
+        anchors = self.generate_fpn_anchors(
+            feature_maps=feature_maps,
+            strides=self.fpn_strides,
+            ratios=self.rpn_anchor_ratios,
+            scales_per_level=self.fpn_scales
+        )
+
+        # === 3. RPN 預測 ===
+        rpn_class_logits_list, rpn_probs_list, rpn_bbox_list = [], [], []
+        for _, feat in feature_maps.items():
+            rpn_class_logits, rpn_probs, rpn_bbox = self.rpn(feat)
+            rpn_class_logits_list.append(rpn_class_logits)
+            rpn_probs_list.append(rpn_probs)
+            rpn_bbox_list.append(rpn_bbox)
+
+        # 多層合併
+        rpn_class_logits = torch.cat(rpn_class_logits_list, dim=1)
+        rpn_probs = torch.cat(rpn_probs_list, dim=1)
+        rpn_bbox = torch.cat(rpn_bbox_list, dim=1)
+
+        # === 4. Proposal Layer ===
+        proposals = self.proposal_layer(anchors, rpn_probs, rpn_bbox)  # [B, N, 4]
+
+        # ========== TRAIN 模式 ==========
+        if mode == 'train':
+            assert gt_boxes is not None and gt_labels is not None, "Train mode requires ground truth data"
+            losses = {}
+
+            # ROIAlign 批次 index
+            num_props = proposals.shape[1]
+            proposals_with_batch_idx = torch.cat([
+                torch.arange(batch_size).view(-1, 1).repeat(1, num_props).view(-1, 1).float(),
+                proposals.view(-1, 4)
+            ], dim=1)
+
+            # Padding gt_boxes
+            max_num_boxes = max([boxes.shape[0] for boxes in gt_boxes])
+            gt_padded_boxes = torch.zeros((batch_size, max_num_boxes, 4), dtype=torch.float32)
+            for i, boxes in enumerate(gt_boxes):
+                if boxes.numel() > 0:
+                    gt_padded_boxes[i, :boxes.shape[0]] = boxes
+            gt_padded_anchors = torch.tensor(anchors, dtype=torch.float32)
+
+            # RPN targets
+            rpn_match, rpn_bbox_targets = build_rpn_targets(gt_padded_anchors, gt_padded_boxes)
+            rpn_target = rpn_match.clone()
+            rpn_target[rpn_target == 0] = -1
+            rpn_target[rpn_target == -1] = 0
+            rpn_target[rpn_target == 1] = 1
+
+            # RPN Loss
+            losses['rpn_class_loss'] = F.cross_entropy(
+                rpn_class_logits.view(-1, 2),
+                rpn_target.view(-1).long(),
+                ignore_index=-1
+            )
+
+            positive_indices = torch.nonzero(rpn_match == 1, as_tuple=False)
+            if positive_indices.numel() > 0:
+                flat_indices = positive_indices[:,0] * rpn_bbox.size(1) + positive_indices[:,1]
+                losses['rpn_bbox_loss'] = F.smooth_l1_loss(
+                    rpn_bbox.view(-1, 4)[flat_indices],
+                    rpn_bbox_targets.view(-1, 4)[flat_indices]
+                )
+            else:
+                losses['rpn_bbox_loss'] = torch.tensor(0.0)
+
+            # Cascade Head + Mask
+            refined_proposals = proposals
+            all_class_logits, all_bbox_deltas, all_refined = self.cascade_head(proposals, feature_maps, image_meta)
+
+            total_cls_loss, total_bbox_loss = 0.0, 0.0
+            for stage in range(self.num_stages):
+
+                matched_props, matched_labels, matched_deltas, matched_gt_boxes, matched_gt_masks = \
+                    self.target_layers[stage](refined_proposals, gt_boxes, gt_labels, gt_masks)
+
+                class_logits = all_class_logits[stage]
+                bbox_deltas = all_bbox_deltas[stage]
+
+                cls_loss, bbox_loss = cascade_rcnn_loss(
+                    class_logits,
+                    bbox_deltas,
+                    matched_labels,
+                    matched_deltas
+                )
+                total_cls_loss += cls_loss
+                total_bbox_loss += bbox_loss
+                refined_proposals = all_refined[stage]
+
+                if stage == self.num_stages - 1:
+                    roi_feats = self.mask_roi_align(feature_maps['2'], proposals_with_batch_idx)
+                    mask_logits = self.mask_head(roi_feats)
+                    mask_logits = F.interpolate(mask_logits, size=self.img_size, mode='bilinear', align_corners=False)
+                    losses['mask_loss'] = mask_rcnn_loss_fn(mask_logits, matched_gt_masks, matched_labels, self.img_size)
+
+            losses['cascade_cls_loss'] = total_cls_loss
+            losses['cascade_bbox_loss'] = total_bbox_loss
+            return losses
+
+        # ========== VAL / TEST 模式（輸出預測） ==========
+        elif mode in ['val', 'test']:
+            all_class_logits, all_bbox_deltas, all_refined = self.cascade_head(proposals, feature_maps, image_meta)
+            final_stage_logits = all_class_logits[-1]
+            final_stage_bbox = all_bbox_deltas[-1]
+            final_proposals = all_refined[-1]
+
+            num_props = final_proposals.shape[1]
+            proposals_with_batch_idx = torch.cat([
+                torch.arange(batch_size).view(-1, 1).repeat(1, num_props).view(-1, 1).float(),
+                final_proposals.view(-1, 4)
+            ], dim=1)
+
+            scores = F.softmax(final_stage_logits.view(-1, final_stage_logits.size(-1)), dim=1)
+            labels = scores.argmax(dim=1)
+            scores_max = scores.max(dim=1).values
+
+            boxes = decode_boxes(
+                final_proposals.view(-1, 4),
+                final_stage_bbox.view(-1, final_stage_logits.size(-1), 4),
+                labels
+            )
+
+            roi_feats = self.mask_roi_align(feature_maps['2'], proposals_with_batch_idx)
+
+            mask_logits = self.mask_head(roi_feats)
+            mask_logits = F.interpolate(mask_logits, size=self.img_size, mode='bilinear', align_corners=False)
+
+            mask_probs = torch.sigmoid(mask_logits)
+            masks = mask_probs[torch.arange(mask_probs.size(0)), labels]
+
+            # 使用 interpolate 逐張放大 mask 回原圖大小 (因為 masks 是扁平 B*N，需要先根據 batch_index分組)
+            num_props = final_proposals.shape[1]
+
+            masks_resized = []
+
+            for b in range(batch_size):
+                # 找該 batch 的所有 proposal mask idx
+                idx_start = b * num_props
+                idx_end = (b + 1) * num_props
+
+                masks_b = masks[idx_start:idx_end]  # [N_props, H_out, W_out]
+
+                masks_b_resized = F.interpolate(
+                    masks_b.unsqueeze(1),  # [N_props, 1, H_out, W_out]
+                    size=self.img_size,
+                    mode='bilinear',
+                    align_corners=False
+                ).squeeze(1)  # [N_props, Hi, Wi]
+
+                masks_resized.append(masks_b_resized)
+
+            return boxes, labels, scores_max, masks_resized
+    
 # ------------------------------
 # Yolov9 Model (m-4 backbone)
 # ------------------------------

@@ -1,0 +1,228 @@
+<!-- templates/liff_discard_records.html -->
+{% extends "liff_base.html" %}
+
+{% block content %}
+<div class="header"> <i class="fas fa-images"></i> 垃圾桶 </div>
+
+{% for date_display, items in grouped_records.items() %}
+    <div class="date-divider">{{ date_display }}</div>
+    {% for item in items %}
+        <!-- 每筆紀錄卡片包在 <a> 裡，導向詳細資料頁 -->
+        <a class="record-link-discard"
+            data-bs-toggle="modal"
+            data-bs-target="#viewRecordModal"
+            data-name="{{ item.name }}"
+            data-gender="{{ item.gender }}"
+            data-age="{{ item.age }}"
+            data-patient_id="{{ item.patient_id }}"
+            data-notes="{{ item.notes }}"
+            data-record_id="{{ item.id }}"
+            data-pic1="{{ item.pic1 }}"
+            data-pic2="{{ item.pic2 }}"
+            data-pic3="{{ item.pic3 }}"
+            data-pic4="{{ item.pic4 }}"
+            data-pic5="{{ item.pic5 }}"
+            data-pic6="{{ item.pic6 }}"
+            data-pic7="{{ item.pic7 }}"
+            data-pic8="{{ item.pic8 }}">
+        <div class="record-card {{ item.bg_class }}">
+            <div class="icon" id="icon-{{ item.patient_id }}">
+                <i class="fas fa-{{ item.icon }}"></i>
+            </div>
+            <div class="record-info">
+                <div class="patient_id">{{ item.patient_id }}</div>
+                <div class="time">{{ item.time }}</div>
+            </div>
+        </div>
+        </a>
+    {% endfor %}
+{% endfor %}
+
+<!-- 編輯 Modal 彈窗 -->
+<div class="modal fade" id="viewRecordModal" tabindex="-1" aria-labelledby="viewRecordModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" enctype="multipart/form-data" action="/record/delete/{{ user_id }}" class="card p-4" id="delete_form">
+                <div class="modal-header custom-modal-header">
+                    <h5 class="modal-title animated-title" id="viewRecordModalLabel">
+                        <i class="fas fa-edit fa-beat"></i> 檢視病歷資料
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+
+                <div class="section-toggle styled-toggle" data-bs-toggle="collapse" data-bs-target="#basicInfoCollapse"
+                    role="button" aria-expanded="true" aria-controls="basicInfoCollapse">
+                    <h5 class="toggle-title">
+                        <i class="fas fa-chevron-down me-2 rotate-icon" data-target="#basicInfoCollapse"></i> 基本資料
+                    </h5>
+                </div>
+
+                <div id="basicInfoCollapse" class="collapse show">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">病患姓名</label>
+                            <input type="text" name="name" class="form-control" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">性別</label>
+                            <select name="gender" disabled>
+                                <option value="">請選擇</option>
+                                <option value="男">男</option>
+                                <option value="女">女</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">年齡</label>
+                            <input type="number" name="age" class="form-control" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">病歷號</label>
+                            <input type="text" name="patient_id" class="form-control" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">備註</label>
+                            <textarea name="notes" class="form-control" readonly></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-toggle styled-toggle" data-bs-toggle="collapse" data-bs-target="#imageCollapse"
+                    role="button" aria-expanded="true" aria-controls="imageCollapse">
+                    <h5 class="toggle-title">
+                        <i class="fas fa-chevron-down me-2 rotate-icon" data-target="#imageCollapse"></i> 口腔照片
+                    </h5>
+                </div>
+
+                <div id="imageCollapse" class="collapse show">
+                    <div class="image-upload">
+                        {% set parts = [
+                        ("1", "上牙齦"),
+                        ("2", "上顎"),
+                        ("3", "右頰"),
+                        ("4", "舌右"),
+                        ("5", "舌左"),
+                        ("6", "左頰"),
+                        ("7", "舌下"),
+                        ("8", "下牙齦")
+                        ] %}
+
+                        <div style="display: flex; flex-direction: column; gap: 20px;">
+                            {% for row in parts|batch(2) %}
+                            <div style="display: flex; justify-content: center; gap: 20px;">
+                                {% for code, label in row %}
+                                <div style="width: 140px; text-align: center;">
+                                    <img src="{{ url_for('static', filename='guide/' ~ code ~ '.png') }}"
+                                        alt="{{ label }}"
+                                        style="width: 100%; border-radius: 6px; margin-bottom: 5px;"
+                                        id="preview_{{ code }}">
+                                    <div style="font-size: 14px; font-weight: 500;">{{ label }}</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    <br>
+
+                    <div style="display: flex; justify-content: space-between;">
+                        <button type="submit" id="check_result" name="action" value="check_result" class="btn btn-secondary btn-lg">
+                            <i class="far fa-file-alt"></i>查看辨識結果
+                        </button>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="submit" name="action" value="resume" class="btn btn-primary">
+                        <i class="fas fa-save"></i> 還原
+                    </button>
+                    <br>
+                    <button type="submit" name="action" value="delete_confirm" class="btn btn-primary">
+                        <i class="fas delete"></i> 確認刪除
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- 辨識結果 Modal 彈窗 -->
+<div class="modal fade" id="resultRecordModal" tabindex="-1" aria-labelledby="resultRecordModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" enctype="multipart/form-data" action="/record/result/{{ user_id }}" class="card p-4" id="result_form">
+                <div class="modal-header custom-modal-header">
+                    <h5 class="modal-title animated-title" id="resultRecordModalLabel">
+                        <i class="fas fa-envelope-open-text fa-beat"></i> 辨識結果與說明
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+
+                <div class="section-toggle styled-toggle" data-bs-toggle="collapse" data-bs-target="#visualResultCollapse"
+                    role="button" aria-expanded="true" aria-controls="visualResultCollapse">
+                    <h5 class="toggle-title">
+                        <i class="fas fa-chevron-down me-2 rotate-icon" data-target="#visualResultCollapse"></i> 結果圖
+                    </h5>
+                </div>
+
+                <div id="visualResultCollapse" class="collapse show">
+                    <div class="image-upload">
+                        {% set parts = [
+                        ("1", "上牙齦"),
+                        ("2", "上顎"),
+                        ("3", "右頰"),
+                        ("4", "舌右"),
+                        ("5", "舌左"),
+                        ("6", "左頰"),
+                        ("7", "舌下"),
+                        ("8", "下牙齦")
+                        ] %}
+
+                        <div style="display: flex; flex-direction: column; gap: 20px;">
+                            {% for row in parts|batch(2) %}
+                            <div style="display: flex; justify-content: center; gap: 20px;">
+                                {% for code, label in row %}
+                                <div style="width: 140px; text-align: center;">
+                                    <img src="{{ url_for('static', filename='guide/' ~ code ~ '.png') }}"
+                                        alt="{{ label }}"
+                                        style="width: 100%; border-radius: 6px; margin-bottom: 5px;"
+                                        id="upload_{{ code }}">
+                                    <div style="font-size: 14px; font-weight: 500;">{{ label }}</div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section-toggle styled-toggle" data-bs-toggle="collapse" data-bs-target="#descResultCollapse"
+                    role="button" aria-expanded="true" aria-controls="descResultCollapse">
+                    <h5 class="toggle-title">
+                        <i class="fas fa-chevron-down me-2 rotate-icon" data-target="#descResultCollapse"></i> 診斷報告
+                    </h5>
+                </div>
+
+                <div id="descResultCollapse" class="collapse show">
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label"> 診斷說明 </label>
+                            <textarea name="results" class="form-control"></textarea>
+                        </div>
+                        <br>
+                        <div class="mb-3">
+                            <label class="form-label"> 建議 </label>
+                            <textarea name="suggestion" class="form-control"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button" id="btnGoBack" name="action" value="prev" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-alt-circle-left"></i> 回上一頁
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

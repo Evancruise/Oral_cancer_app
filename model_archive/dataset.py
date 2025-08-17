@@ -23,12 +23,15 @@ class YoloDetectionDataset(Dataset):
         return len(self.image_paths)
 
     def __getitem__(self, idx):
-
+        img_name = self.image_paths[idx].split("\\")[-1]
         image = Image.open(self.image_paths[idx]).convert("RGB")
-        data = torch.load(self.ann_paths[idx])
-        w0, h0 = image.size
-
         image = self.transform(image)
+
+        if not self.ann_paths:
+            return image, None, img_name
+        
+        w0, h0 = image.size
+        data = torch.load(self.ann_paths[idx])
 
         if len(data["bboxes"]) == 0:
             boxes = torch.zeros(0, 4)
@@ -58,31 +61,7 @@ class YoloDetectionDataset(Dataset):
 
             targets = {"labels": labels, "bboxes": boxes}
         
-        return image, targets
-
-class VOCDataset(torch.utils.data.Dataset):
-    def __init__(self, image_dir, mask_dir, transform=None):
-        self.image_dir = image_dir
-        self.mask_dir = mask_dir
-        self.image_names = [f for f in os.listdir(image_dir) if f.endswith(".jpg")]
-        self.transform = transform or transforms.Compose([
-            transforms.Resize((518, 518)),
-            transforms.ToTensor(),
-            transforms.Normalize([0.485, 0.456, 0.406],
-                                 [0.229, 0.224, 0.225])
-        ])
-
-    def __len__(self):
-        return len(self.image_names)
-
-    def __getitem__(self, idx):
-        img_name = self.image_names[idx]
-        image = Image.open(os.path.join(self.image_dir, img_name)).convert("RGB")
-        mask = Image.open(os.path.join(self.mask_dir, img_name.replace(".jpg", ".png")))
-        image = self.transform(image)
-        mask = transforms.Resize((518, 518), interpolation=Image.NEAREST)(mask)
-        mask = torch.from_numpy(np.array(mask)).long()
-        return image, mask
+        return image, targets, img_name
 
 class SegmentationDataset(Dataset):
     def __init__(self, img_size, image_paths, ann_paths, image_transform=None, mask_transform=None):
@@ -98,6 +77,8 @@ class SegmentationDataset(Dataset):
 
     def __getitem__(self, idx):
         # 讀圖片
+        print("self.image_paths:", self.image_paths)
+        img_name = self.image_paths[idx].split("\\")[-1]
         img = Image.open(self.image_paths[idx]).convert("RGB")
         # 讀遮罩 (假設是多物件instance mask：每個物件有自己的二元mask，存在一張多通道圖或多張圖中)
         # 這裡舉例，假設 ann_paths[idx] 是多物件mask的 numpy array: shape [N, H, W]
@@ -109,7 +90,7 @@ class SegmentationDataset(Dataset):
 
         # 讀取
         if not self.ann_paths:
-            return img, None
+            return img, None, img_name
         
         data = torch.load(self.ann_paths[idx])
 
@@ -131,7 +112,7 @@ class SegmentationDataset(Dataset):
 
             target = {"labels": labels, "masks": mask_all}
 
-        return img, target
+        return img, target, img_name
 
 class SegmentationDataset_ema(Dataset):
     def __init__(self, img_size, resize_img_size, image_paths, ann_paths, image_transform=None, box_transform=None, mask_transform=None):
@@ -149,6 +130,7 @@ class SegmentationDataset_ema(Dataset):
 
     def __getitem__(self, idx):
         # 讀圖片
+        img_name = self.image_paths[idx].split("\\")[-1]
         img = Image.open(self.image_paths[idx]).convert("RGB")
         # 讀遮罩 (假設是多物件instance mask：每個物件有自己的二元mask，存在一張多通道圖或多張圖中)
         # 這裡舉例，假設 ann_paths[idx] 是多物件mask的 numpy array: shape [N, H, W]
@@ -160,7 +142,7 @@ class SegmentationDataset_ema(Dataset):
 
         # 讀取
         if not self.ann_paths:
-            return img, None
+            return img, None, img_name
         
         data = torch.load(self.ann_paths[idx])
 
@@ -194,7 +176,7 @@ class SegmentationDataset_ema(Dataset):
 
             target = {"labels": labels, "masks": mask_all, "boxes": box_all}
 
-        return img, target
+        return img, target, img_name
 
 class MultiModalSegDataset(Dataset):
     def __init__(self, img_size, image_paths, ann_paths=None, image_transform=None, label_map=None, resize_img_size=None, patch_size=16):
@@ -294,3 +276,49 @@ class MultiModalSegDataset(Dataset):
             fx1, fy1, fx2, fy2 = x1 / self.patch_size, y1 / self.patch_size, x2 / self.patch_size, y2 / self.patch_size
             rois.append([batch_idx, fx1, fy1, fx2, fy2])
         return torch.tensor(rois, dtype=torch.float32)
+
+class MultiModalSegCascadeDataset(Dataset):
+    def __init__(self, img_size, image_paths, ann_paths=None, image_transform=None, label_map=None, resize_img_size=None):
+        self.img_size = img_size
+        self.resize_img_size = resize_img_size
+        self.image_paths = image_paths
+        self.ann_paths = ann_paths
+        self.label_map = label_map if label_map else {"None"}
+        self.image_transform = image_transform
+
+    def __len__(self):
+        return len(self.image_paths)
+    
+    def __getitem__(self, idx):
+        img_path = self.image_paths[idx]
+        ann_path = self.ann_paths[idx]
+
+        # --- 1. Load image ---
+        img = Image.open(img_path).convert("RGB")
+
+        if self.image_transform:
+            img = self.image_transform(img)  # [3, H, W]
+            H, W = img.shape[1:]
+        else:
+            H, W = img.size
+
+        if not ann_path or not os.path.exists(ann_path):
+            return {}
+        
+        data = torch.load(ann_path)
+        boxes = data.get("bboxes", torch.zeros(0, 4))
+
+        if not self.resize_img_size:
+            masks = data.get("masks", torch.zeros(0, *self.img_size))  # [N, H, W]
+        else:
+            masks = data.get("masks", torch.zeros(0, *self.resize_img_size))
+
+        labels = data.get("labels", torch.zeros(0, dtype=torch.long))  # [N]
+
+        return {
+            'images': img,  # (C, H, W)
+            'image_meta': {'original_shape': (H, W)},
+            'gt_boxes': boxes,     # (N, 4)
+            'gt_labels': labels,   # (N,)
+            'gt_masks': masks      # (N, H, W)
+        }

@@ -14,11 +14,76 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 import json
+import sqlite3
 
-from model_training.loss import yolov9_loss_fn_with_anchors, detection_loss
-from model_training.utils import draw_predictions, dice_score, visualize_predictions, \
+from model_archive.loss import yolov9_loss_fn_with_anchors, detection_loss
+from model_archive.utils_func import draw_predictions, dice_score, visualize_predictions, \
                  visualize_confusion_matrix, \
-                 export_prediction
+                 export_prediction, \
+                 masks_to_polygons, \
+                 plot_confusion_matrix, \
+                 plot_pr_curve, \
+                 segmentation_eval_batch, \
+                 compute_map
+
+def update_progress_status(message=None, patient_id=None, percent=0, db_path=None, filename_list=None):
+
+    if patient_id and message:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE records
+            SET status=?, progress=?
+            WHERE patient_id=?
+        """, (message, percent, patient_id,))
+    
+        if filename_list:
+            cursor.execute("""
+                UPDATE records
+                SET img1_result=?, img2_result=?, img3_result=?, img4_result=?,
+                    img5_result=?, img6_result=?, img7_result=?, img8_result=?
+                WHERE patient_id=?
+            """, (filename_list[0], filename_list[1], filename_list[2], filename_list[3],
+                  filename_list[4], filename_list[5], filename_list[6], filename_list[7], patient_id,))
+        
+        conn.commit()
+        conn.close()
+
+def check_progress_status(patient_id=None, db_path=None):
+
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        SELECT status, progress FROM records
+    	WHERE patient_id = ?
+    """, (patient_id,))
+
+    conn.commit()
+
+    row = cursor.fetchone()
+    status = row["status"]     # "running"
+    progress = row["progress"]
+
+    print("patient_id:" + patient_id, " status:" + status + " progress:", str(progress))
+
+    if status == "canceled":
+
+        cursor.execute("""
+            UPDATE records
+            SET status=?, progress=?
+            WHERE patient_id=?
+        """, ("not_started", 0, patient_id,))
+
+        conn.commit()
+        conn.close()
+        return False
+    else:
+        conn.close()
+        return True
 
 def train_yolo(model, epoch, total_epochs, train_loader, optimizer, device, num_classes, progress_path=None):
     model.train()
@@ -40,7 +105,7 @@ def train_yolo(model, epoch, total_epochs, train_loader, optimizer, device, num_
         "cancel": False
     }
 
-    for i, (imgs, targets) in enumerate(train_loader):
+    for i, (imgs, targets, _) in enumerate(train_loader):
 
         if progress_path:
             with open(progress_path) as f:
@@ -86,7 +151,7 @@ def evaluate_yolo(model, dataloader, device, num_classes, iou_threshold=0.5, con
     all_preds = []
     all_gts = []
 
-    for imgs, targets in dataloader:
+    for imgs, targets, _ in dataloader:
         imgs = imgs.to(device)
         outputs = model(imgs)  # 解碼後的格式
         B = imgs.size(0)
@@ -230,7 +295,7 @@ def test_yolo(model, dataloader, device, class_names, iou_threshold=0.5, conf_th
     
     model.eval()
 
-    for imgs, _ in dataloader:
+    for imgs, _, _ in dataloader:
         imgs = imgs.to(device)
         B = imgs.size(0)
         outputs = model(imgs)  # 已解碼格式
@@ -269,17 +334,27 @@ def test_yolo(model, dataloader, device, class_names, iou_threshold=0.5, conf_th
             cv2.waitKey(0)
 
 @torch.no_grad
-def inference_yolo(model, dataloader, device, class_names, iou_threshold=0.5, conf_thresh=0.3, save_dir=None, show_image=True):
+def inference_yolo(model, dataloader, device, class_names, iou_threshold=0.5, conf_thresh=0.3, save_dir=None, show_image=True, patient_id=None, db_path=None):
     
     model.eval()
     filename_list = []
+    total_steps = len(dataloader)
 
-    for imgs, _ in dataloader:
+    if patient_id:
+        update_progress_status("in_progress", patient_id, 0, db_path)
+
+    for i, (imgs, _, img_names) in enumerate(dataloader):
         imgs = imgs.to(device)
         B = imgs.size(0)
         outputs = model(imgs)  # 已解碼格式
 
-        for b in range(B):
+        if patient_id:
+            if not check_progress_status(patient_id, db_path=db_path):
+                break
+
+            update_progress_status("in_progress", patient_id, int(i / total_steps * 100), db_path=db_path)
+
+        for b, img_name in enumerate(img_names):
             boxes_list, scores_list = [], []
             for level in outputs:
                 boxes = level["boxes"][b]      # [S, 5]
@@ -303,22 +378,23 @@ def inference_yolo(model, dataloader, device, class_names, iou_threshold=0.5, co
             else:
                 preds = torch.empty((0, 5))
 
-        img_np = imgs[b].permute(1, 2, 0).detach().cpu().numpy()  # [H, W, C]
-        img_np = (img_np * 255).astype(np.uint8)
-        img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-        img_with_boxes = draw_predictions(img_bgr, preds, class_names)
+            img_np = imgs[b].permute(1, 2, 0).detach().cpu().numpy()  # [H, W, C]
+            img_np = (img_np * 255).astype(np.uint8)
+            img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+            img_with_boxes = draw_predictions(img_bgr, preds, class_names)
 
-        if show_image:
-            cv2.imshow("Prediction", img_with_boxes)
-            cv2.waitKey(0)
-        
-        if save_dir:
-            filename = f"val_img{b}_{i}.png"
-            save_path = os.path.join(save_dir, filename)
-            cv2.imwrite(save_path, img_with_boxes)
-            filename_list.append(filename)
-    
-    return filename_list
+            if show_image:
+                cv2.imshow("Prediction", img_with_boxes)
+                cv2.waitKey(0)
+            
+            if save_dir:
+                save_path = os.path.join(save_dir, img_name)
+                cv2.imwrite(save_path, img_with_boxes)
+                filename_list.append(save_path)
+
+    if patient_id:
+        # check_progress_status(patient_id, db_path=db_path)
+        update_progress_status("done", patient_id, 100, db_path, filename_list)
 
 def train_seg(model, epoch, total_epochs, train_loader, optimizer, scheduler, loss_fn, device, progress_path=None):
     
@@ -341,7 +417,7 @@ def train_seg(model, epoch, total_epochs, train_loader, optimizer, scheduler, lo
         "cancel": False
     }
 
-    for i, (imgs, targets) in enumerate(train_loader):
+    for i, (imgs, targets, _) in enumerate(train_loader):
 
         if progress_path:
             with open(progress_path) as f:
@@ -383,7 +459,7 @@ def evaluate_seg(model, dataloader, loss_fn, device, num_classes, save_dir=None,
     all_gt = []
     all_pred = []
 
-    for idx, (imgs, targets) in enumerate(dataloader):
+    for idx, (imgs, targets, _) in enumerate(dataloader):
         imgs = imgs.to(device)
 
         outputs = model(imgs)
@@ -499,7 +575,7 @@ def test_seg(model, dataloader, device, num_classes, save_dir=None, class_names=
     all_gt = []
     all_pred = []
 
-    for idx, (imgs, targets) in enumerate(dataloader):
+    for idx, (imgs, targets, _) in enumerate(dataloader):
         imgs = imgs.to(device)
         outputs = model(imgs)
 
@@ -590,45 +666,34 @@ def test_seg(model, dataloader, device, num_classes, save_dir=None, class_names=
         plt.savefig(os.path.join(save_dir, "per_class_metrics.png"))
     plt.show()
 
-    return {
-        "per_class_precision": precision_per_class,
-        "per_class_recall": recall_per_class,
-        "per_class_iou": iou_per_class,
-        "macro_precision": mean_precision,
-        "macro_recall": mean_recall,
-        "macro_iou": mean_iou,
-        "confusion_matrix": cm,
-    }
-
 @torch.no_grad()
-def inference_seg(model, dataloader, device, class_color_map=None, original_dir=None, save_dir=None, progress_path=None):
+def inference_seg(model, dataloader, device, class_color_map=None, input_inference_path=None, save_dir=None, progress_path=None, patient_id=None, db_path=None):
+
     model.eval()
     filename_list = []
-    inference_status = {
-        "current_index": 1,
-        "total_num_imgs": len(dataloader),
-        "cancel": False,
-        "success": False
-    }
+    total_steps = len(dataloader)
+    # inference_status = {
+    #     "current_index": 1,
+    #     "total_num_imgs": len(dataloader),
+    #     "cancel": False,
+    #     "success": False
+    # }
 
-    for idx, (imgs, _) in enumerate(dataloader):
+    if patient_id:
+        update_progress_status("in_progress", patient_id, 0, db_path=db_path)
 
-        if progress_path:
-            with open(progress_path) as f:
-                inference_status = json.load(f)
-                if inference_status["cancel"] == True:
-                    return filename_list
-                
-        inference_status["current_index"] = idx+1
-        inference_status["total_num_imgs"] = len(dataloader)
-        #if progress_path:
-        #    with open(progress_path, "w") as f:
-        #        json.dump(inference_status, f, indent=2)
+    for idx, (imgs, _, img_names) in enumerate(dataloader):
+
+        if patient_id:
+            if not check_progress_status(patient_id, db_path=db_path):
+                break
+
+            update_progress_status("in_progress", patient_id, int(idx / total_steps * 100), db_path)
 
         imgs = imgs.to(device)
         outputs = model(imgs)  # dict: pred_logits, pred_masks, sem_seg...
 
-        for i in range(len(imgs)):
+        for i, img_name in enumerate(img_names):
             pred_mask = outputs["sem_seg"][i]  # [C, H, W]
             pred_label = torch.argmax(pred_mask, dim=0).cpu().numpy()  # [H, W]
 
@@ -650,18 +715,17 @@ def inference_seg(model, dataloader, device, class_color_map=None, original_dir=
             overlay = cv2.addWeighted(img_np, 1.0, color_mask, 0.4, 0)
 
             if save_dir is not None:
-                filename = f"sample_{idx}_{i}.jpg"
-                filename_list.append(filename)
-                cv2.imwrite(os.path.join(original_dir, f"{filename}"), img_np)
-                cv2.imwrite(os.path.join(save_dir, f"{filename}"), overlay)
+                cv2.imwrite(os.path.join(save_dir, f"{img_name}"), overlay)
+                filename_list.append(save_dir + f"/{img_name}")
 
-    inference_status["success"] = True
+    if patient_id:
+        # check_progress_status(patient_id, db_path=db_path)
+        update_progress_status("done", patient_id, 100, db_path, filename_list)
+
+    # inference_status["success"] = True
     #if progress_path:
     #    with open(progress_path, "w") as f:
     #        json.dump(inference_status, f, indent=2)
-                
-    print(f"[Test] Inference done. {len(filename_list)} results.")
-    return filename_list
 
 def train_maskrcnn_ema(model, epoch, total_epochs, ema, train_loader, optimizer, device, batch_size, num_classes, writer=None, progress_path=None):
     model.train()
@@ -687,7 +751,7 @@ def train_maskrcnn_ema(model, epoch, total_epochs, ema, train_loader, optimizer,
         "cancel": False
     }
 
-    for i, (imgs, targets) in enumerate(train_loader):
+    for i, (imgs, targets, _) in enumerate(train_loader):
 
         if progress_path:
             with open(progress_path) as f:
@@ -752,6 +816,7 @@ def train_maskrcnn_ema(model, epoch, total_epochs, ema, train_loader, optimizer,
 
     return avg_loss, training_status
 
+@torch.no_grad()
 def evaluate_maskrcnn_ema(model, dataloader, device, epoch, num_classes, class_names, class_color_map, save_dir=None, writer=None):
     model.eval()
     total_cls_loss = 0
@@ -766,83 +831,82 @@ def evaluate_maskrcnn_ema(model, dataloader, device, epoch, num_classes, class_n
 
     map_metric = MeanAveragePrecision(iou_type="bbox")
 
-    with torch.no_grad():
-        for b, (imgs, targets) in enumerate(dataloader):
-            print("imgs:", imgs)
-            print("targets:", targets)
+    for b, (imgs, targets, _) in enumerate(dataloader):
+        print("imgs:", imgs)
+        print("targets:", targets)
 
-            imgs = imgs.to(device)
-            # forward
-            cls_logits, bbox_deltas, mask_logits, obj_logits, batch_indices, rpn_losses, final_proposals = model(imgs, targets)
+        imgs = imgs.to(device)
+        # forward
+        cls_logits, bbox_deltas, mask_logits, obj_logits, batch_indices, rpn_losses, final_proposals = model(imgs, targets)
 
-            # 計算 loss（僅評估用，不會 backward）
-            loss, loss_dict = detection_loss(
-                cls_logits, bbox_deltas, mask_logits, obj_logits,
-                targets, batch_indices=batch_indices,
-                rpn_losses=rpn_losses,
-                final_proposals=final_proposals,
-                num_classes=num_classes
-            )
+        # 計算 loss（僅評估用，不會 backward）
+        loss, loss_dict = detection_loss(
+            cls_logits, bbox_deltas, mask_logits, obj_logits,
+            targets, batch_indices=batch_indices,
+            rpn_losses=rpn_losses,
+            final_proposals=final_proposals,
+            num_classes=num_classes
+        )
 
-            total_loss += loss.item()
-            total_cls_loss += loss_dict['cls_loss']
-            total_bbox_loss += loss_dict['bbox_loss']
-            total_mask_loss += loss_dict['mask_loss']
-            total_obj_loss += loss_dict['obj_loss']
-            count += 1
+        total_loss += loss.item()
+        total_cls_loss += loss_dict['cls_loss']
+        total_bbox_loss += loss_dict['bbox_loss']
+        total_mask_loss += loss_dict['mask_loss']
+        total_obj_loss += loss_dict['obj_loss']
+        count += 1
 
-            # === Metrics for each image in batch
-            for i in range(len(imgs)):
-                pred_boxes = final_proposals[i]  # [N, 4]
-                roi_mask = batch_indices == i
-                cls_probs = F.softmax(cls_logits[roi_mask], dim=1)
-                pred_scores, pred_labels = cls_probs.max(dim=1)
+        # === Metrics for each image in batch
+        for i in range(len(imgs)):
+            pred_boxes = final_proposals[i]  # [N, 4]
+            roi_mask = batch_indices == i
+            cls_probs = F.softmax(cls_logits[roi_mask], dim=1)
+            pred_scores, pred_labels = cls_probs.max(dim=1)
 
-                gt_boxes = targets[i]["boxes"]
-                gt_labels = targets[i]["labels"]
+            gt_boxes = targets[i]["boxes"]
+            gt_labels = targets[i]["labels"]
 
-                if pred_boxes.numel() > 0 and gt_boxes.numel() > 0:
-                    # --- IoU ---
-                    iou = box_iou(pred_boxes, gt_boxes)
-                    iou_list.append(iou.max(dim=1)[0].mean().item())
+            if pred_boxes.numel() > 0 and gt_boxes.numel() > 0:
+                # --- IoU ---
+                iou = box_iou(pred_boxes, gt_boxes)
+                iou_list.append(iou.max(dim=1)[0].mean().item())
 
-                    # --- mAP ---
-                    preds = [{
-                        "boxes": pred_boxes,
-                        "scores": pred_scores,
-                        "labels": pred_labels
-                    }]
-                    gts = [{
-                        "boxes": gt_boxes,
-                        "labels": gt_labels
-                    }]
-                    map_metric.update(preds, gts)
+                # --- mAP ---
+                preds = [{
+                    "boxes": pred_boxes,
+                    "scores": pred_scores,
+                    "labels": pred_labels
+                }]
+                gts = [{
+                    "boxes": gt_boxes,
+                    "labels": gt_labels
+                }]
+                map_metric.update(preds, gts)
 
-                # --- Dice score (only if mask exists) ---
-                if mask_logits.size(0) > 0 and targets[i]["masks"].size(0) > 0:
-                    pred_masks = mask_logits[roi_mask].argmax(dim=1)  # [N, H, W]
-                    gt_masks = targets[i]["masks"]  # [M, H, W]
-                    for j in range(min(pred_masks.shape[0], gt_masks.shape[0])):
-                        dice = dice_score(pred_masks[j], gt_masks[j])
-                        dice_list.append(dice.item())
-                
-                    if b < 1 and i < 2:
-                        img = imgs[i].detach().cpu()
-                        vis_img = visualize_predictions(
-                            img, pred_labels, pred_scores, gt_labels, pred_boxes, gt_boxes,
-                            pred_masks=pred_masks[:len(gt_boxes)],
-                            gt_masks=gt_masks[:len(gt_boxes)],
-                            class_names=class_names,
-                            class_color_map=class_color_map
-                        )
-                        
-                        if save_dir:
-                            save_path = os.path.join(save_dir, f"val_img{b}_{i}.png")
-                            cv2.imwrite(save_path, vis_img)
+            # --- Dice score (only if mask exists) ---
+            if mask_logits.size(0) > 0 and targets[i]["masks"].size(0) > 0:
+                pred_masks = mask_logits[roi_mask].argmax(dim=1)  # [N, H, W]
+                gt_masks = targets[i]["masks"]  # [M, H, W]
+                for j in range(min(pred_masks.shape[0], gt_masks.shape[0])):
+                    dice = dice_score(pred_masks[j], gt_masks[j])
+                    dice_list.append(dice.item())
+            
+                if b < 1 and i < 2:
+                    img = imgs[i].detach().cpu()
+                    vis_img = visualize_predictions(
+                        img, pred_labels, pred_scores, gt_labels, pred_boxes, gt_boxes,
+                        pred_masks=pred_masks[:len(gt_boxes)],
+                        gt_masks=gt_masks[:len(gt_boxes)],
+                        class_names=class_names,
+                        class_color_map=class_color_map
+                    )
+                    
+                    if save_dir:
+                        save_path = os.path.join(save_dir, f"val_img{b}_{i}.png")
+                        cv2.imwrite(save_path, vis_img)
 
-                        if writer:
-                            img_tensor = torch.from_numpy(np.array(vis_img)).permute(2, 0, 1).float() / 255.0
-                            writer.add_image(f"val/vis_img_{b}_{i}", img_tensor, global_step=epoch)
+                    if writer:
+                        img_tensor = torch.from_numpy(np.array(vis_img)).permute(2, 0, 1).float() / 255.0
+                        writer.add_image(f"val/vis_img_{b}_{i}", img_tensor, global_step=epoch)
 
     avg_loss = total_loss / count
     mean_iou = sum(iou_list) / len(iou_list) if iou_list else 0.0
@@ -868,57 +932,70 @@ def evaluate_maskrcnn_ema(model, dataloader, device, epoch, num_classes, class_n
     
     return avg_loss
 
-def inference_maskrcnn_ema(model, dataloader, device, class_names=None, class_color_map=None, visualize=False, vis_save_dir=None, conf_thresh=0.5):
+@torch.no_grad()
+def inference_maskrcnn_ema(model, dataloader, device, class_names=None, class_color_map=None, visualize=False, save_dir=None, conf_thresh=0.5, patient_id=None, db_path=None):
+    
     model.eval()
     filename_list = []
+    total_steps = len(dataloader)
 
-    with torch.no_grad():
-        for b, (imgs, _) in enumerate(dataloader):
-            imgs = imgs.to(device)
-            cls_logits, bbox_deltas, mask_logits, obj_logits, batch_indices, _, final_proposals = model(imgs)
+    if patient_id:
+        update_progress_status("in_progress", patient_id, 0, db_path)
 
-            for i in range(len(imgs)):
-                roi_mask = batch_indices == i
+    for b, (imgs, _, img_names) in enumerate(dataloader):
 
-                cls_probs = F.softmax(cls_logits[roi_mask], dim=1)
-                pred_scores, pred_labels = cls_probs.max(dim=1)
+        if patient_id:
+            if not check_progress_status(patient_id, db_path=db_path):
+                break
 
-                # 過濾低信心預測
-                keep = pred_scores > conf_thresh
-                pred_scores = pred_scores[keep]
-                pred_labels = pred_labels[keep]
-                pred_masks_logits = mask_logits[roi_mask][keep]  # [N, num_classes, H, W]
-                pred_masks = pred_masks_logits.argmax(dim=1)     # [N, H, W]
+            update_progress_status("in_progress", patient_id, int(b / total_steps * 100), db_path)
 
-                # 把 tensor image 轉回 numpy 原圖
-                img_np = imgs[i].detach().cpu().numpy()
-                img_np = (img_np * 255).astype(np.uint8)
-                img_np = np.transpose(img_np, (1, 2, 0))  # [C,H,W] → [H,W,C]
+        imgs = imgs.to(device)
+        cls_logits, bbox_deltas, mask_logits, obj_logits, batch_indices, _, final_proposals = model(imgs)
 
-                overlay = img_np.copy()
+        for i, img_name in enumerate(img_names):
+            roi_mask = batch_indices == i
 
-                for j, mask in enumerate(pred_masks):
-                    mask = mask.cpu().numpy().astype(np.uint8)
-                    label_id = pred_labels[j].item()
-                    class_name = class_names[label_id] if class_names else str(label_id)
+            cls_probs = F.softmax(cls_logits[roi_mask], dim=1)
+            pred_scores, pred_labels = cls_probs.max(dim=1)
 
-                    # mask 顏色
-                    color = class_color_map[class_name] if class_color_map and class_name in class_color_map else (0, 255, 0)
+            # 過濾低信心預測
+            keep = pred_scores > conf_thresh
+            pred_scores = pred_scores[keep]
+            pred_labels = pred_labels[keep]
+            pred_masks_logits = mask_logits[roi_mask][keep]  # [N, num_classes, H, W]
+            pred_masks = pred_masks_logits.argmax(dim=1)     # [N, H, W]
 
-                    # 建立三通道 mask（用來 overlay）
-                    color_mask = np.zeros_like(overlay, dtype=np.uint8)
-                    color_mask[mask == 1] = color  # 只對該 mask 填色
+            # 把 tensor image 轉回 numpy 原圖
+            img_np = imgs[i].detach().cpu().numpy()
+            img_np = (img_np * 255).astype(np.uint8)
+            img_np = np.transpose(img_np, (1, 2, 0))  # [C,H,W] → [H,W,C]
 
-                    # 疊加透明度
-                    overlay = cv2.addWeighted(overlay, 1.0, color_mask, 0.4, 0)
+            overlay = img_np.copy()
 
-                # 儲存結果
-                filename = f"result_b{b}_img{i}.jpg"
-                save_path = os.path.join(vis_save_dir, filename)
-                cv2.imwrite(save_path, overlay)
-                filename_list.append(filename)
+            for j, mask in enumerate(pred_masks):
+                mask = mask.cpu().numpy().astype(np.uint8)
+                label_id = pred_labels[j].item()
+                class_name = class_names[label_id] if class_names else str(label_id)
 
-    return filename_list
+                # mask 顏色
+                color = class_color_map[class_name] if class_color_map and class_name in class_color_map else (0, 255, 0)
+
+                # 建立三通道 mask（用來 overlay）
+                color_mask = np.zeros_like(overlay, dtype=np.uint8)
+                color_mask[mask == 1] = color  # 只對該 mask 填色
+
+                # 疊加透明度
+                overlay = cv2.addWeighted(overlay, 1.0, color_mask, 0.4, 0)
+
+            # 儲存結果
+            save_path = os.path.join(save_dir, img_name)
+            cv2.imwrite(save_path, overlay)
+            filename_list.append(save_path)
+
+    if patient_id:
+        # check_progress_status(patient_id, db_path=db_path)
+        update_progress_status("done", patient_id, 100, db_path, filename_list)
 
 # ---------------------- Training Pipeline ---------------------- #
 def train_segmentation_model_moe(model, epoch, total_epochs, train_loader, optimizer, criterion, scheduler, device, writer=None, progress_path=None):
@@ -1036,6 +1113,7 @@ def train_segmentation_model_moe(model, epoch, total_epochs, train_loader, optim
     return avg_loss, training_status
 
 # ---------------------- Validation Pipeline ---------------------- #
+@torch.no_grad()
 def validate_segmentation_model_moe(model, val_loader, criterion, scheduler, device, epoch, writer=None):
     model.eval()
     total_loss = 0.0
@@ -1045,57 +1123,56 @@ def validate_segmentation_model_moe(model, val_loader, criterion, scheduler, dev
     all_preds = []
     all_gts = []
 
-    with torch.no_grad():
-        for batch in val_loader:
-            image = batch["image"]               # [B, 1, 128, 128]
-            seg_gt = batch["seg_mask"]         # [B, 128, 128]
-            rois = batch["rois"]                 # [N, 5]
-            text_labels = batch["text_labels"]   # List[str]
-            mask_labels = batch["mask_labels"]   # [N, 1, 7, 7]
+    for batch in val_loader:
+        image = batch["image"]               # [B, 1, 128, 128]
+        seg_gt = batch["seg_mask"]         # [B, 128, 128]
+        rois = batch["rois"]                 # [N, 5]
+        text_labels = batch["text_labels"]   # List[str]
+        mask_labels = batch["mask_labels"]   # [N, 1, 7, 7]
 
-            # 假設 rois 是 list of Tensors, 每個 Tensor 是 [N_i, 4]
-            if isinstance(rois, list):
-                batched_rois = []
-                for boxes in rois:
-                    if boxes.numel() == 0:
-                        continue  # 跳過空的
-                    assert boxes.shape[1] == 5, "Each ROI must be in shape [N, 5]: [batch_idx, x1, y1, x2, y2]"
-                    batched_rois.append(boxes)
-                if len(batched_rois) == 0:
-                    rois = None
-                else:
-                    rois = torch.cat(batched_rois, dim=0)  # [K, 5]
+        # 假設 rois 是 list of Tensors, 每個 Tensor 是 [N_i, 4]
+        if isinstance(rois, list):
+            batched_rois = []
+            for boxes in rois:
+                if boxes.numel() == 0:
+                    continue  # 跳過空的
+                assert boxes.shape[1] == 5, "Each ROI must be in shape [N, 5]: [batch_idx, x1, y1, x2, y2]"
+                batched_rois.append(boxes)
+            if len(batched_rois) == 0:
+                rois = None
+            else:
+                rois = torch.cat(batched_rois, dim=0)  # [K, 5]
 
-            # === Forward
-            seg_feat, seg_logits, seg_out_sim, masks, similarity, text_embeds, report = model(
-                image, rois=rois, text_labels=text_labels, mask_labels=mask_labels, generate_report=False
-            )
+        # === Forward
+        seg_feat, seg_logits, seg_out_sim, masks, similarity, text_embeds, report = model(
+            image, rois=rois, text_labels=text_labels, mask_labels=mask_labels, generate_report=False
+        )
 
-            # === Loss 計算
-            loss, loss_dict = criterion(
-                seg_feat=seg_feat,
-                seg_logits=seg_logits,
-                seg_gt=seg_gt,
-                text_embeds=text_embeds,
-                mask_logits=masks,
-                mask_labels=mask_labels,
-                similarity=similarity,
-                clip_targets=None
-            )
+        # === Loss 計算
+        loss, loss_dict = criterion(
+            seg_feat=seg_feat,
+            seg_logits=seg_logits,
+            seg_gt=seg_gt,
+            text_embeds=text_embeds,
+            mask_logits=masks,
+            mask_labels=mask_labels,
+            similarity=similarity,
+            clip_targets=None
+        )
 
-            total_loss += loss.item()
-            total_samples += image.size(0)
+        total_loss += loss.item()
+        total_samples += image.size(0)
 
-            # === 計算 accuracy / precision / IoU
-            pred_mask = torch.argmax(seg_logits, dim=1)          # [B, H, W]
-            pred_mask = pred_mask.cpu().numpy().flatten()
-            gt_mask = seg_gt.cpu().numpy().flatten()
+        # === 計算 accuracy / precision / IoU
+        pred_mask = torch.argmax(seg_logits, dim=1)          # [B, H, W]
+        pred_mask = pred_mask.cpu().numpy().flatten()
+        gt_mask = seg_gt.cpu().numpy().flatten()
 
-            all_preds.extend(pred_mask)
-            all_gts.extend(gt_mask)
+        all_preds.extend(pred_mask)
+        all_gts.extend(gt_mask)
 
-            correct = (pred_mask == gt_mask).sum()
-            total_correct += correct
+        correct = (pred_mask == gt_mask).sum()
+        total_correct += correct
 
     # === 最終指標
     avg_loss = total_loss / len(val_loader)
@@ -1117,6 +1194,7 @@ def validate_segmentation_model_moe(model, val_loader, criterion, scheduler, dev
         "val_iou": iou
     }
 
+@torch.no_grad()
 def evaluate_segmentation_model_moe(model, val_loader, criterion, device, num_classes=3, class_names=None, visualize_cm=False):
     model.eval()
     total_loss = 0.0
@@ -1126,39 +1204,38 @@ def evaluate_segmentation_model_moe(model, val_loader, criterion, device, num_cl
     all_preds = []
     all_gts = []
 
-    with torch.no_grad():
-        for batch in val_loader:
-            image = batch["image"].to(device)
-            seg_gt = batch["seg_mask"].to(device)
-            rois = batch.get("rois", None)
-            text_labels = batch.get("text_labels", None)
-            mask_labels = batch.get("mask_labels", None)
+    for batch in val_loader:
+        image = batch["image"].to(device)
+        seg_gt = batch["seg_mask"].to(device)
+        rois = batch.get("rois", None)
+        text_labels = batch.get("text_labels", None)
+        mask_labels = batch.get("mask_labels", None)
 
-            seg_feat, seg_logits, masks, similarity, text_embeds, _ = model(
-                image, rois=rois, text_labels=text_labels, mask_labels=mask_labels, generate_report=False
-            )
+        seg_feat, seg_logits, masks, similarity, text_embeds, _ = model(
+            image, rois=rois, text_labels=text_labels, mask_labels=mask_labels, generate_report=False
+        )
 
-            # ==== Loss ====
-            loss, loss_dict = criterion(
-                seg_feat=seg_feat,
-                seg_logits=seg_logits,
-                seg_gt=seg_gt,
-                mask_logits=masks,
-                mask_labels=mask_labels,
-                text_embeds=text_embeds,
-                similarity=similarity
-            )
+        # ==== Loss ====
+        loss, loss_dict = criterion(
+            seg_feat=seg_feat,
+            seg_logits=seg_logits,
+            seg_gt=seg_gt,
+            mask_logits=masks,
+            mask_labels=mask_labels,
+            text_embeds=text_embeds,
+            similarity=similarity
+        )
 
-            total_loss += loss.item()
-            total_samples += image.size(0)
+        total_loss += loss.item()
+        total_samples += image.size(0)
 
-            # ==== Metrices ====
-            pred = torch.argmax(seg_logits, dim=1)
-            all_preds.extend(pred.cpu().numpy().flatten())
-            all_gts.extend(seg_gt.cpu().numpy().flatten())
+        # ==== Metrices ====
+        pred = torch.argmax(seg_logits, dim=1)
+        all_preds.extend(pred.cpu().numpy().flatten())
+        all_gts.extend(seg_gt.cpu().numpy().flatten())
 
-            correct = (pred == seg_gt).sum().item()
-            total_correct += correct
+        correct = (pred == seg_gt).sum().item()
+        total_correct += correct
         
     avg_loss = total_loss / len(val_loader)
     acc = total_correct / (len(all_gts) + 1e-6)
@@ -1179,44 +1256,221 @@ def evaluate_segmentation_model_moe(model, val_loader, criterion, device, num_cl
         "confusion_matrix": cm
     }
 
-def inference_segmentation_mode_moe(model, test_loader, device, class_color_map, class_names=None, save_dir=None):
+@torch.no_grad()
+def inference_segmentation_mode_moe(model, dataloader, device, class_color_map, class_names=None, save_dir=None, patient_id=None, db_path=None):
     """
     class_color: list of RGB tuples (0-255) for each class
     """
+    model.eval()
     filename_list = []
+    total_steps = len(dataloader)
+
+    if patient_id:
+        update_progress_status("in_progress", patient_id, 0, db_path)
+
+    for i, batch in enumerate(dataloader):
+
+        img_name = batch["name"]
+
+        if patient_id:
+            if not check_progress_status(patient_id, db_path=db_path):
+                break
+
+            update_progress_status("in_progress", patient_id, int(i / total_steps * 100), db_path)
+
+        image = batch["image"].to(device)              # [B, C, H, W]
+        batch_size = image.shape[0]
+
+        seg_feat, seg_logits, *_ = model(image)        # seg_logits: [B, C, H, W]
+
+        pred_masks = torch.argmax(seg_logits, dim=1)   # [B, H, W]
+        conf_map = F.softmax(seg_logits, dim=1)        # [B, C, H, W]
+
+        for i in range(batch_size):
+            img_tensor = image[i]                      # [C, H, W]
+            pred_mask = pred_masks[i]                 # [H, W]
+            class_confidence = conf_map[i].mean(dim=(1, 2))  # [C] 平均 confidence per class
+
+            pid = batch.get("pid", [f"unknown_{i}"])[i]
+            image_id = batch.get("image_id", [f"{i}"])[i]
+
+            # export overlay and metadata json
+            export_prediction(
+                image_tensor=img_tensor,
+                mask_pred=pred_mask,
+                confidence=class_confidence,
+                save_dir=save_dir,
+                patient_id=pid,
+                image_id=image_id,
+                class_color_map=class_color_map,
+                name=batch["name"]
+            )
+
+            filename_list.append(img_name)
+
+    if patient_id:
+        # check_progress_status(patient_id, db_path=db_path)
+        update_progress_status("done", patient_id, 100, db_path, filename_list)
+
+def train_cascade_resnet(model, dataloader, device, epochs, optimizer, scheduler):
+    model.train()
+    total_loss = 0.0
+
+    torch.autograd.set_detect_anomaly(True)
+    total_steps = len(dataloader)
+
+    for i, batch in enumerate(dataloader):
+        images = batch['images'].to(device)
+        image_meta = batch['image_meta']
+
+        gt_boxes = [b.to(device) for b in batch['gt_boxes']]
+        gt_labels = [l.to(device) for l in batch['gt_labels']]
+        gt_masks = [m.to(device) for m in batch['gt_masks']]
+
+        optimizer.zero_grad()
+        losses = model(images, image_meta, gt_boxes, gt_labels, gt_masks, mode='train')
+        loss = sum(losses.values())
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+
+        print(f"Step {i + 1}/{total_steps}, Total loss: {loss.item():.4f}, mask_loss: {losses['mask_loss']:.4f}, cascade_cls_loss: {losses['cascade_cls_loss']:.4f}, cascade_bbox_loss: {losses['cascade_bbox_loss']:.4f}, rpn_class_loss: {losses['rpn_class_loss']:.4f}, rpn_bbox_loss: {losses['rpn_bbox_loss']:.4f}")
+
+    scheduler.step()
+    print(f"Average Training Loss: {total_loss:.4f}")
+
+@torch.no_grad()
+def evaluate_cascade_resnet(model, dataloader, device):
     model.eval()
 
-    with torch.no_grad():
-        for batch in test_loader:
-            image = batch["image"].to(device)              # [B, C, H, W]
-            batch_size = image.shape[0]
+    all_pred_boxes = []
+    all_pred_labels = []
+    all_pred_scores = []
+    all_gt_boxes = []
+    all_gt_labels = []
 
-            seg_feat, seg_logits, *_ = model(image)        # seg_logits: [B, C, H, W]
+    all_pred_masks = []
+    all_gt_masks = []
 
-            pred_masks = torch.argmax(seg_logits, dim=1)   # [B, H, W]
-            conf_map = F.softmax(seg_logits, dim=1)        # [B, C, H, W]
+    for batch in dataloader:
+        images = batch['images'].to(device)
+        image_meta = batch['image_meta']
 
-            for i in range(batch_size):
-                img_tensor = image[i]                      # [C, H, W]
-                pred_mask = pred_masks[i]                 # [H, W]
-                class_confidence = conf_map[i].mean(dim=(1, 2))  # [C] 平均 confidence per class
+        gt_boxes = [b.to(device) for b in batch['gt_boxes']]
+        gt_labels = [l.to(device) for l in batch['gt_labels']]
+        gt_masks = [m.to(device) for m in batch['gt_masks']]
 
-                pid = batch.get("pid", [f"unknown_{i}"])[i]
-                image_id = batch.get("image_id", [f"{i}"])[i]
-                filename_list.append(batch["name"])
+        boxes, pred_labels, pred_scores, masks = model(
+            images, image_meta, gt_boxes, gt_labels, gt_masks, mode='val'
+        )
 
-                # export overlay and metadata json
-                export_prediction(
-                    image_tensor=img_tensor,
-                    mask_pred=pred_mask,
-                    confidence=class_confidence,
-                    save_dir=save_dir,
-                    patient_id=pid,
-                    image_id=image_id,
-                    class_color_map=class_color_map,
-                    name=batch["name"]
-                )
+        # 收集 Detection
+        all_pred_boxes.extend(boxes)
+        all_pred_labels.extend(pred_labels)
+        all_pred_scores.extend(pred_scores)
 
-    print(f"Inference completed. Results saved to: {save_dir}")
-    return filename_list
+        all_gt_boxes.extend(gt_boxes)
+        all_gt_labels.extend(gt_labels)
 
+        # 收集 Segmentation
+        all_pred_masks.extend(masks)
+        all_gt_masks.extend(gt_masks)
+
+    result = segmentation_eval_batch(all_pred_masks, all_gt_masks, all_pred_scores, all_pred_labels, all_gt_labels)
+
+    print("mAP:", result["mAP"])
+    print("AP per class:", result["AP_per_class"])
+    print("Detailed result:", result["per_image"])
+
+@torch.no_grad()
+def test_cascade_resnet(model, dataloader, device, num_classes, class_names):
+    model.eval()
+
+    all_preds = []
+    all_gts = []
+    all_scores = []
+
+    for batch in dataloader:
+        images = batch['images'].to(device)
+        image_meta = batch['image_meta']
+        # gt_labels = batch['gt_labels']  # [B, M]
+
+        # gt_boxes = [b.to(device) for b in batch['gt_boxes']]
+        gt_labels = [l.to(device) for l in batch['gt_labels']]
+        # gt_masks = [m.to(device) for m in batch['gt_masks']]
+
+        boxes, pred_labels, scores, masks = model(images, image_meta, mode='test')
+
+        all_preds.extend(pred_labels.cpu().tolist())
+        all_scores.extend(scores.cpu().tolist())
+        for gts in gt_labels:
+            all_gts.extend(gts[gts != -1].cpu().tolist())  # 避免 padding
+
+    # 畫 confusion matrix
+    plot_confusion_matrix(all_gts, all_preds, class_names=class_names)
+
+    # 對 scores 進行處理為多類別（你需要 return softmax logits）
+    # 假設你調整了 forward return：
+    # return boxes, labels, scores_max, masks, scores_all_classes
+
+    plot_pr_curve(all_gts, all_scores, num_classes=num_classes)
+
+    return all_preds, all_gts, all_scores
+
+@torch.no_grad()
+def inference_cascade_resnet(model, dataloader, class_names, device):
+    """
+    model: 已載入權重的模型 (eval 模式)
+    image_tensor: [1,3,H,W] tensor，未經標準化的輸入影像 (或你自己標準化的)
+    class_names: list[str] 類別名稱，class 0 是 background
+    device: 'cpu' or 'cuda'
+
+    回傳：原圖與繪製結果圖
+    """
+    model.eval()
+    
+    for batch in dataloader:
+        image_tensor = batch["images"].to(device)
+
+        # 模型 forward (假設回傳 boxes, labels, scores, masks)
+        boxes, labels, scores = model(image_tensor)[:3]  # 調整對應你的 model 回傳
+        masks = model(image_tensor)[3]  # 取出 mask 預測，[N, H, W]
+
+        # 將tensor轉numpy
+        image_np = image_tensor[0].cpu().permute(1,2,0).numpy()
+        image_np = (image_np * 255).astype(np.uint8)  # 如果有標準化要逆標準化
+
+        boxes = boxes.cpu().numpy()
+        labels = labels.cpu().numpy()
+        scores = scores.cpu().numpy()
+        masks = masks.cpu().numpy()
+
+        polygons_list = masks_to_polygons(masks)
+
+        # 繪圖
+        plt.figure(figsize=(12, 12))
+        plt.imshow(image_np)
+        ax = plt.gca()
+
+        colors = plt.cm.get_cmap('tab20', len(class_names))
+
+        for i, (box, label, score, polygons) in enumerate(zip(boxes, labels, scores, polygons_list)):
+            if score < 0.5:
+                continue
+
+            # 繪製box
+            x1, y1, x2, y2 = box
+            rect = plt.Rectangle((x1,y1), x2-x1, y2-y1, fill=False, edgecolor=colors(label), linewidth=2)
+            ax.add_patch(rect)
+
+            # 顯示類別名稱 + 信心度
+            ax.text(x1, y1 - 5, f"{class_names[label]}: {score:.2f}",
+                    color='w', fontsize=12, bbox=dict(facecolor=colors(label), alpha=0.7))
+
+            # 繪製多邊形mask
+            for polygon in polygons:
+                poly_patch = plt.Polygon(polygon, facecolor=colors(label), edgecolor='k', alpha=0.4)
+                ax.add_patch(poly_patch)
+
+        plt.axis('off')
+        plt.show()

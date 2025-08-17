@@ -30,6 +30,7 @@ class PILPadTo16:
             raise TypeError("Input must be PIL.Image")
         
 class Config:
+
     def __init__(self):
         self.get_config()
         
@@ -44,6 +45,7 @@ class Config:
         self.liff_id = os.getenv("LIFF_ID")
         self.web_url = os.getenv("WEB_URL")
         self.channel_id = os.getenv("CHANNEL_ID")
+        self.db_path = os.getenv("DB_PATH")
 
         self.classes_dict = {"Background": 0, "Green": 1, "Yellow": 2, "Red": 3}
         self.class_color_map = [(0, 0, 0), (0, 0, 255), (0, 255, 255), (255, 0, 0)]
@@ -66,6 +68,19 @@ class Config:
             transforms.Resize((512, 512))
         ])
 
+        self.image_transform_dinov2 = transforms.Compose([
+            PILPadTo16(),
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize([0.485, 0.456, 0.406],
+                                [0.229, 0.224, 0.225])
+        ])
+
+        self.mask_transform_dinov2 = transforms.Compose([
+            PadTo16(),
+            transforms.Resize((224, 224))
+        ])
+
         self.image_transform_ema = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor()
@@ -81,8 +96,12 @@ class Config:
             transforms.ToTensor()
         ])
 
+        self.image_transform_cascade = transforms.Compose([
+            transforms.ToTensor()
+        ])
+
         # 收集所有圖與標註檔案
-        self.root_dir = "model_training/"
+        self.root_dir = "model_archive/"
         # self.root_dir = "./"
         self.train_image_paths = sorted(glob.glob(self.root_dir + "dataset/train/images/*.png"))
         self.train_ann_paths = sorted(glob.glob(self.root_dir + "dataset/train/annotations/*.pt"))
@@ -98,10 +117,10 @@ class Config:
         self.inference_ann_paths = None
         self.inference_ann_mask_paths = None
 
-        self.model_dir = self.root_dir + "model_archive"
-        self.img_size = (512, 384)
-        # self.resize_img_size = (512, 384)
-        self.resize_img_size = (160, 224)
+        self.model_dir = self.root_dir + "checkpoints"
+        self.img_size = (384, 512)
+        self.resize_img_size = (384, 512)
+        # self.resize_img_size = (160, 224)
         self.lr = 1e-4
         self.weight_decay = 1e-4
         self.batch_size = 4

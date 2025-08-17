@@ -63,18 +63,15 @@
               <div style="font-size: 14px; font-weight: 500;">{{ label }}</div>
               <!--<input type="file" name="{{ code }}" id="upload_{{ code }}" accept="image/*" required style="display: none;">-->
               <input type="file" name="{{ code }}" id="upload_{{ code }}" style="display: none;">
-              <!-- 自訂選擇圖片按鈕 -->
               <button type="button" id="SelectBtn_{{ code }}">選擇圖片</button>
             </div>
             {% endfor %}
           </div>
           <br>
-          <!-- 自訂選擇圖片按鈕 -->
           <button type="submit" id="UploadBtn">上傳圖片</button>
         </form>
       </div>
 
-      <!-- 測試模型分頁 -->
       <div class="tab-pane fade" id="test" role="tabpanel" aria-labelledby="test-tab">
 
         <form method="POST" action="/inference" enctype="multipart/form-data" id="inferForm" class="mb-3">
@@ -93,11 +90,10 @@
           <div class="mb-3">
             <label class="form-label">原圖與測試結果圖</label>
             <div class="row" id="resultPreviewArea">
-              <!-- 這邊會用 JS 自動插入 8 張圖 -->
+              
             </div>
           </div>
 
-          <!-- 你原本的按鈕保持 -->
           <button type="button" id="downloadZipBtn" class="btn btn-outline-secondary">下載 ZIP</button>
           <button type="submit" class="btn btn-success">測試模型</button>
         </form>

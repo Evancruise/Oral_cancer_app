@@ -1,98 +1,113 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-Hant">
 <head>
-  <meta charset="utf-8">
-  <title>口腔癌篩檢 AI 聊天機器人</title>
-  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>QR 登入</title>
   <style>
-    body { font-family: sans-serif; padding: 20px; }
-    #preview { max-width: 100%; margin-top: 10px; }
-    #responseBox { background: #f0f0f0; padding: 10px; margin-top: 10px; }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: #f5f7fa;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      padding: 0 20px;
+      color: #333;
+    }
+    .login-container {
+      background: #fff;
+      padding: 30px 40px;
+      border-radius: 10px;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 360px;
+      text-align: center;
+    }
+    h2 {
+      margin-bottom: 24px;
+      font-weight: 600;
+      color: #222;
+    }
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 500;
+      text-align: left;
+      color: #555;
+    }
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid #ccc;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+    input[type="text"]:focus,
+    input[type="password"]:focus {
+      outline: none;
+      border-color: #0078d4;
+      box-shadow: 0 0 6px #0078d4aa;
+    }
+    button {
+      margin-top: 12px;
+      padding: 12px 0;
+      background-color: #0078d4;
+      border: none;
+      border-radius: 6px;
+      color: white;
+      font-weight: 600;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #005fa3;
+    }
+    .error-message {
+      color: #d93025;
+      font-weight: 600;
+      margin-bottom: 12px;
+      text-align: left;
+      font-size: 14px;
+    }
+    @media (max-width: 320px) {
+      body {
+        padding: 0 10px;
+      }
+      .login-container {
+        padding: 20px 20px;
+      }
+      button {
+        font-size: 14px;
+      }
+    }
   </style>
 </head>
 <body>
-  <h2>您好，<span id="userName">使用者</span>！</h2>
-
-  <p>請選擇要使用的模型：</p>
-  <select id="modelSelect">
-    {% for model in model_dict %}
-      <option value="{{ model }}">{{ model }}</option>
-    {% endfor %}
-  </select>
-
-  <br><br>
-  <input type="file" id="imageInput" accept="image/*"><br>
-  <img id="preview" src="#" alt="預覽圖片" style="display: none;"><br>
-  <button id="submitBtn">送出檢測</button>
-
-  <div id="responseBox" style="display: none;">
-    <h3>AI 分析建議：</h3>
-    <p id="diagnosisText"></p>
-    <img id="resultImage" src="#" style="max-width: 100%;">
+  <div class="login-container">
+    <h2>帳號密碼登入</h2>
+    {% if error %}
+      <p class="error-message">{{ error }}</p>
+    {% endif %}
+    <form method="post" action="/login">
+      <label for="username">帳號：</label>
+      <input type="text" id="username" name="username" autocomplete="username" required />
+      <label for="password">密碼：</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required />
+      <button type="submit">登入</button>
+    </form>
   </div>
-
-  <script>
-    const liffId = "{{ liff_id }}";
-
-    // 初始化 LIFF
-    liff.init({ liffId: liffId }).then(() => {
-      if (!liff.isLoggedIn()) liff.login();
-
-      liff.getProfile().then(profile => {
-        document.getElementById("userName").innerText = profile.displayName;
-        window.userId = profile.userId; // optional: 上傳給後端
-      });
-
-    }).catch(err => {
-      console.error("LIFF init error:", err);
-    });
-
-    // 圖片預覽
-    document.getElementById("imageInput").addEventListener("change", function () {
-      const file = this.files[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = e => {
-          const preview = document.getElementById("preview");
-          preview.src = e.target.result;
-          preview.style.display = "block";
-        };
-        reader.readAsDataURL(file);
-      }
-    });
-
-    // 送出推論請求
-    document.getElementById("submitBtn").addEventListener("click", () => {
-      const model = document.getElementById("modelSelect").value;
-      const fileInput = document.getElementById("imageInput");
-      const file = fileInput.files[0];
-
-      if (!file) {
-        alert("請上傳圖片");
-        return;
-      }
-
-      const formData = new FormData();
-      formData.append("image", file);
-      formData.append("modelId", model);
-      formData.append("userId", window.userId)
-
-      fetch("/inference", {
-        method: "POST",
-        body: formData
-      })
-        .then(res => res.json())
-        .then(data => {
-          console.log("結果:", data);
-          document.getElementById("diagnosisText").innerText = data.diagnosis_text;
-          document.getElementById("resultImage").src = data.result_img_url;
-          document.getElementById("responseBox").style.display = "block";
-        })
-        .catch(err => {
-          console.error("推論錯誤:", err);
-          alert("推論失敗，請稍後再試");
-        });
-    });
-  </script>
 </body>
 </html>
