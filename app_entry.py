@@ -16,6 +16,7 @@ from collections import defaultdict
 import redis, jwt, requests
 import numpy as np
 from linebot.exceptions import InvalidSignatureError
+from google.cloud import storage
 
 from model_archive.main_entry import model_trainvaltest_process
 from model_archive.config import Config
@@ -66,6 +67,12 @@ LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
 LINE_BOT_ID = os.getenv("LINE_BOT_ID")
 USERNAME = os.getenv("USERNAME")
 PASSWORD = os.getenv("PASSWORD")
+
+MODEL_BUCKET = os.environ.get("MODEL_BUCKET", "my-model-bucket")
+MODEL_BLOB = os.environ.get("MODEL_BLOB", "models/dinov2_token_segmentation_final.pth")
+
+# 初始化 GCS client
+storage_client = storage.Client()
 URL = "127.0.0.1"
 
 USER_ID = os.getenv("USER_ID")
@@ -75,6 +82,8 @@ LOG_DIR = "logs"
 
 UPLOAD_DIR = "static/uploads"
 RESULT_DIR = "static/results"
+MODEL_DIR = "model_archive\checkpoints"
+
 DB_PATH = os.getenv("DB_PATH")
 progress_path = os.path.join(LOG_DIR, "train_progress.json")
 
@@ -86,6 +95,13 @@ IMAGE_DIR = "static/images"
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
+
+def download_model_from_gcs():
+    """下載模型到本地 /tmp"""
+    bucket = storage_client.bucket(MODEL_BUCKET)
+    blob = bucket.blob(MODEL_BLOB)
+    blob.download_to_filename(MODEL_DIR)
+    print(f"✅ 模型已下載到 {MODEL_DIR}")
 
 # Initialize the SQLite database
 def init_db():
@@ -711,6 +727,8 @@ def inference_process(patient_id, question):
     start_epoch = int(session.get("start_epoch", 0))
     input_inference_path = sorted(glob.glob(f"{UPLOAD_DIR}/{patient_id}/*.png"))
     save_dir = f"{RESULT_DIR}/{patient_id}"
+
+    download_model_from_gcs()
 
     def run_inference():
         result_description = model_trainvaltest_process(

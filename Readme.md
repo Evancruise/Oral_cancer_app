@@ -263,23 +263,53 @@ curl -X POST "http://localhost:8000/rag/answer" -H "Content-Type: application/js
 ## Model deployment
 
 # [1] 模型版本管理
-# 1. 建立 Docker
-docker build -t oralcancer_ai_template .
+# 1. 建立 bucket 並上傳模型到 gcs
+```bash
+gcloud storage buckets create gs://model-bucket-20250820 --location=asia-east1
+gcloud storage cp dinov2_token_segmentation_final.pth gs://my-model-bucket-20250820/models/
+```
+# 2. 查看檔案
+```bash
+gcloud storage ls gs://model-bucket-20250820/models/
+```
+
+# 3. 建立 Docker image
+## 把「程式碼 → Docker 映像檔 → 上傳到 GCP 容器登錄（Container Registry / Artifact Registry）」完整跑一次
+```bash
+gcloud builds submit --tag gcr.io/oral-flask-ai-app-20250820/flask-app
+or
+docker build -t gcr.io/oral-flask-ai-app-20250820/flask-app . (usage: Google Container Registry 的主機名稱(registry)/PROJECT_ID/IMAGE_NAME[:TAG])
+```
+
+# 4. 部署到 cloud run
+```bash
+gcloud run deploy flask-dino-service \
+  --image gcr.io/oral-flask-ai-app-20250820/flask-app \
+  --platform managed \
+  --region asia-east1 \
+  --allow-unauthenticated \
+  --set-env-vars MODEL_BUCKET=model-bucket-20250820,MODEL_BLOB=models/dinov2_token_segmentation_final.pth
+```
 
 # [2] 圖片版本管理
 # 1. 啟動 Docker 時掛載 Volume 
 
 ## 方式1: 使用 docker run 掛載目錄
+```bash
 docker run -d \
   -p 5000:5000 \
-  -v C:\Users\Evan\Desktop\master\Side_project\OralCancerAPP_v3\static\images:/app/static/images \
+  -v C:\Users\Evan\Desktop\master\Side_project\OralCancerAPP_main\static\images:/app/static/images \
   --name flask-oral-images \
   oralcancer_ai_template
+```
 
 ## 方式2: 執行 docker 指令 (搭配 dockercompose.yaml)
-docker compose up --build
+```bash
+docker compose up --build .
 docker compose -f infra/docker-compose.yml up --build (可以用-f parser來指定用特定的yml，向這個範例當中的docker-compose.yml是自定義的yaml檔案)
 ```
+
+```bash
 version: '1'
 services:
   flask-oral-images:

@@ -1,4 +1,8 @@
 from model_archive.main_entry import model_trainvaltest_process
+import glob
+
+UPLOAD_DIR = "static/uploads"
+RESULT_DIR = "static/results"
 
 if __name__ == "__main__":
 
@@ -22,13 +26,13 @@ if __name__ == "__main__":
         lr=1e-4,
         scheduler_mode="cosineanneal",
         epochs=10,
-        mode="train",
+        mode="inference",
         ml="dinov2",
         model_tuning_enable=False,
         log_enable=False,
         start_epoch=1,
-        input_inference_path=None,
-        save_dir=None,
+        input_inference_path=sorted(glob.glob(f"{UPLOAD_DIR}/0001/*.png")),
+        save_dir=f"{RESULT_DIR}/0001",
         progress_path=None,
         patient_id=None,
         db_path=None,

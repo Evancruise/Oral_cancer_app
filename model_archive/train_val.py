@@ -506,7 +506,7 @@ def evaluate_seg(model, dataloader, loss_fn, device, num_classes, save_dir=None,
     plt.ylabel("Ground Truth")
     if save_dir:
         plt.savefig(os.path.join(save_dir, "val_confusion_matrix.png"))
-    plt.show()
+    # plt.show()
 
     # === 條狀圖 ===
     x = np.arange(num_classes)
@@ -527,7 +527,7 @@ def evaluate_seg(model, dataloader, loss_fn, device, num_classes, save_dir=None,
     plt.tight_layout()
     if save_dir:
         plt.savefig(os.path.join(save_dir, "val_per_class_metrics.png"))
-    plt.show()
+    # plt.show()
 
     return {
         "avg_loss": avg_loss,

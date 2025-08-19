@@ -6,9 +6,10 @@ from model_archive.dataset import SegmentationDataset, YoloDetectionDataset, Seg
 from model_archive.train_val import (train_seg, evaluate_seg, test_seg, inference_seg, \
                        train_yolo, evaluate_yolo, test_yolo, inference_yolo, \
                        train_maskrcnn_ema, evaluate_maskrcnn_ema, inference_maskrcnn_ema, \
-                       train_segmentation_model_moe, validate_segmentation_model_moe, evaluate_segmentation_model_moe, inference_segmentation_mode_moe)
+                       train_segmentation_model_moe, validate_segmentation_model_moe, evaluate_segmentation_model_moe, inference_segmentation_mode_moe, \
+                       train_cascade_resnet, evaluate_cascade_resnet, test_cascade_resnet, inference_cascade_resnet)
 from model_archive.loss import Mask2FormerLoss, CLIP_MultiTaskLoss
-from model_archive.utils_func import collate_fn, collate_fn_yolo, collate_fn_moe, model_info, load_checkpoint, optimizer_setup
+from model_archive.utils_func import collate_fn, collate_fn_yolo, collate_fn_moe, collate_fn_cascade, model_info, load_checkpoint, optimizer_setup
 from model_archive.config import Config
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR, MultiStepLR, ExponentialLR, ReduceLROnPlateau, OneCycleLR
 from torch.utils.tensorboard import SummaryWriter
@@ -125,24 +126,10 @@ def model_trainvaltest_process(optimizer_type="adam",
                 loss = train_seg(model, epoch, train_dataloader, optimizer, scheduler, loss_fn, device, progress_path)
                 
                 metric = evaluate_seg(model, val_dataloader, loss_fn, device, num_classes)
-                torch.save({
-                    'epoch': epoch+1,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'loss': loss,
-                    'metric': metric,
-                }, f"{model_dir}/dinov2_token_segmentation_epoch{epoch+1}.pth")
+                torch.save(model.state_dict(), f"{model_dir}/dinov2_token_segmentation_epoch{epoch+1}.pth")
 
-            torch.save({
-                'epoch': epochs,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': loss,
-                'metric': metric,
-            }, f"{model_dir}/dinov2_token_segmentation_final.pth")
-            
+            torch.save(model.state_dict(), f"{model_dir}/dinov2_token_segmentation_final.pth")
         else:
-            
             if mode == "continue_train":
 
                 train_dataset = SegmentationDataset(img_size, train_image_paths, train_ann_paths, image_transform=image_transform_dinov2, mask_transform=mask_transform_dinov2)
@@ -155,7 +142,7 @@ def model_trainvaltest_process(optimizer_type="adam",
                 optimizer, scheduler = optimizer_setup(optimizer_type, scheduler_mode, trainable_parameters, steps_per_epoch, lr, weight_decay, epochs, train_dataloader)
 
                 checkpoint = torch.load(f"{model_dir}/dinov2_token_segmentation_final.pth")
-                model.load_state_dict(checkpoint['model_state_dict'])
+                model.load_state_dict(checkpoint)
                 start_epoch = checkpoint['epoch']
                 epochs = start_epoch + epochs
                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])    
@@ -165,25 +152,13 @@ def model_trainvaltest_process(optimizer_type="adam",
                     loss = train_seg(model, epoch, train_dataloader, optimizer, loss_fn, device, progress_path)
 
                     metric = evaluate_seg(model, val_dataloader, loss_fn, device, num_classes)
-                    torch.save({
-                        'epoch': epoch+1,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'loss': loss,
-                        'metric': metric,
-                    }, f"{model_dir}/dinov2_token_segmentation_{epoch+1}.pth")
+                    torch.save(model.state_dict(), f"{model_dir}/dinov2_token_segmentation_{epoch+1}.pth")
 
-                torch.save({
-                    'epoch': epochs,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'loss': loss,
-                    'metric': metric,
-                }, f"{model_dir}/dinov2_token_segmentation_final.pth")
+                torch.save(model.state_dict(), f"{model_dir}/dinov2_token_segmentation_final.pth")
                 
             elif mode == "test":
-                checkpoint = torch.load(f"{model_dir}/dinov2_token_segmentation_final.pth")
-                model.load_state_dict(checkpoint['model_state_dict'])
+                checkpoint = torch.load(f"{model_dir}/dinov2_token_segmentation_final.pth", map_location="cpu")
+                model.load_state_dict(checkpoint)
                 
                 test_dataset = SegmentationDataset(img_size, test_image_paths, test_ann_paths, image_transform=image_transform_dinov2, mask_transform=mask_transform_dinov2)
                 test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn)
@@ -191,8 +166,8 @@ def model_trainvaltest_process(optimizer_type="adam",
                 test_seg(model, test_loader, device, save_dir=save_dir)
 
             elif mode == "inference":
-                checkpoint = torch.load(f"{model_dir}/dinov2_token_segmentation_final.pth")
-                model.load_state_dict(checkpoint['model_state_dict'])
+                checkpoint = torch.load(f"{model_dir}/dinov2_token_segmentation_epoch1.pth", map_location="cpu")
+                model.load_state_dict(checkpoint)
 
                 inference_dataset = SegmentationDataset(img_size, inference_image_paths, None, image_transform=image_transform_dinov2, mask_transform=None)
                 inference_loader = DataLoader(inference_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn)
@@ -235,17 +210,9 @@ def model_trainvaltest_process(optimizer_type="adam",
 
                 metrics = evaluate_yolo(model, val_dataloader, device, num_classes)
 
-                torch.save({
-                        'epoch': epoch+1,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict()
-                    }, f"{model_dir}/yolov9_m4_detection_{epoch+1}.pth")
+                torch.save(model.state_dict(), f"{model_dir}/yolov9_m4_detection_{epoch+1}.pth")
 
-            torch.save({
-                'epoch': epochs,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict()
-            }, f"{model_dir}/yolov9_m4_detection_final.pth")
+            torch.save(model.state_dict(), f"{model_dir}/yolov9_m4_detection_final.pth")
 
         elif mode == "continue_train":
             
@@ -258,8 +225,7 @@ def model_trainvaltest_process(optimizer_type="adam",
             optimizer, scheduler = optimizer_setup(optimizer_type, scheduler_mode, trainable_parameters, steps_per_epoch, lr, weight_decay, epochs, train_dataloader)
 
             checkpoint = torch.load(f"{model_dir}/yolov9_m4_detection_final.pth")
-            model.load_state_dict(checkpoint['model_state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            model.load_state_dict(checkpoint)
 
             start_epoch = checkpoint['epoch']
             epochs = start_epoch + epochs
@@ -273,16 +239,12 @@ def model_trainvaltest_process(optimizer_type="adam",
 
                 metrics = evaluate_yolo(model, val_dataloader, device, num_classes)
 
-                torch.save({
-                        'epoch': epoch+1,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict()
-                    }, f"{model_dir}/yolov9_m4_detection_{epoch+1}.pth")
+                torch.save(model.state_dict(), f"{model_dir}/yolov9_m4_detection_{epoch+1}.pth")
         
         elif mode == "test":
 
             checkpoint = torch.load(f"{model_dir}/yolov9_m4_detection_final.pth")
-            model.load_state_dict(checkpoint['model_state_dict'])
+            model.load_state_dict(checkpoint)
 
             test_dataset = YoloDetectionDataset(test_image_paths, test_ann_paths, transform)
             test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn_yolo)
@@ -292,7 +254,7 @@ def model_trainvaltest_process(optimizer_type="adam",
         elif mode == "inference":
 
             checkpoint = torch.load(f"{model_dir}/yolov9_m4_detection_final.pth")
-            model.load_state_dict(checkpoint['model_state_dict'])
+            model.load_state_dict(checkpoint)
 
             inference_dataset = YoloDetectionDataset(test_image_paths, test_ann_paths, transform)
             inference_dataloader = DataLoader(inference_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn_yolo)
@@ -336,19 +298,9 @@ def model_trainvaltest_process(optimizer_type="adam",
                 ema_model = ema.ema_model
                 val_loss = evaluate_maskrcnn_ema(ema_model, val_dataloader, device, epoch, num_classes, class_names, class_color_map, save_dir=save_dir, writer=writer)
                 
-                torch.save({
-                        'epoch': epoch+1,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'loss': val_loss
-                    }, f"{model_dir}/mask2former_segmentation_epoch{epoch+1}.pth")
+                torch.save(model.state_dict(), f"{model_dir}/mask2former_segmentation_epoch{epoch+1}.pth")
             
-            torch.save({
-                'epoch': epochs,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': val_loss
-            }, f"{model_dir}/mask2former_segmentation_final.pth")
+            torch.save(model.state_dict(), f"{model_dir}/mask2former_segmentation_final.pth")
             
         elif mode == "continue_train":
 
@@ -361,8 +313,8 @@ def model_trainvaltest_process(optimizer_type="adam",
             optimizer, scheduler = optimizer_setup(optimizer_type, scheduler_mode, trainable_parameters, steps_per_epoch, lr, weight_decay, epochs, train_dataloader)
 
             checkpoint = torch.load(f"{model_dir}/mask2former_segmentation_final.pth")
-            model.load_state_dict(checkpoint['model_state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            model.load_state_dict(checkpoint)
+            # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
             start_epoch = checkpoint['epoch']
             epochs = start_epoch + epochs
@@ -387,7 +339,7 @@ def model_trainvaltest_process(optimizer_type="adam",
         elif mode == "test":
 
             checkpoint = torch.load(f"{model_dir}/mask2former_segmentation_final.pth")
-            model.load_state_dict(checkpoint['model_state_dict'])
+            model.load_state_dict(checkpoint)
 
             test_dataset = SegmentationDataset_ema(img_size, test_image_paths, test_ann_paths, image_transform=image_transform_ema, mask_transform=mask_transform_ema, box_transform=transform)
             test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn)
