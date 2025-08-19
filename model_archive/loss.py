@@ -228,7 +228,15 @@ class Mask2FormerLoss(nn.Module):
 
             # Flatten for cost計算
             pred_flat = pred_prob.view(Q, -1)  # [Q, HW] (100, 512*512)
-            tgt_flat = tgt_masks.view(N, -1)   # [N, HW] (3, 512*512)
+            tgt_flat = tgt_masks.view(N, -1)   # [N, HW] (3, 512*512)         
+
+            # 確保 target 是 0/1
+            tgt_flat = (tgt_flat > 0).float()
+
+            # 保證型別正確
+            pred_flat = pred_flat.float()
+            tgt_flat = tgt_flat.float()
+
             # mask cost (BCE)
             cost_mask = F.binary_cross_entropy(
                 pred_flat.unsqueeze(1).expand(-1, N, -1),
@@ -240,7 +248,9 @@ class Mask2FormerLoss(nn.Module):
             # 只用ground truth labels，不用no-object類別
             pred_cls_prob = pred_logits[i].softmax(dim=-1)  # [Q, C+1] (100, 4)
             tgt_labels_exp = tgt_labels.unsqueeze(0).expand(Q, -1)  # [Q, N]
-            cost_class = -pred_cls_prob[:, :-1].gather(1, tgt_labels_exp)  # 負的正確class概率，shape [Q, N]
+
+            # cost_class = -pred_cls_prob[:, :-1].gather(1, tgt_labels_exp)  # 負的正確class概率，shape [Q, N]
+            cost_class = -pred_cls_prob.gather(1, tgt_labels_exp)  # [Q, N]
 
             # 總成本矩陣
             cost_matrix = cost_mask + cost_class
@@ -260,6 +270,13 @@ class Mask2FormerLoss(nn.Module):
 
             # 計算 mask loss：Dice + BCE
             loss_dice = self.dice(matched_pred_masks.unsqueeze(1), matched_tgt_masks.unsqueeze(1))
+
+            matched_tgt_masks = (matched_tgt_masks > 0).float()
+
+            # 保證型別正確
+            matched_pred_masks = matched_pred_masks.float()
+            matched_tgt_masks = matched_tgt_masks.float()
+
             loss_bce = F.binary_cross_entropy(
                 matched_pred_masks,
                 matched_tgt_masks,

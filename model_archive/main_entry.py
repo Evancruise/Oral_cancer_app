@@ -1,7 +1,7 @@
 from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
-from model_archive.model import DINOv2TokenSegmentation, YOLOv9_M4, MaskRCNNSwin, EMA, UNETR_MoE_CLIP_RCNN
+from model_archive.model import DINOv2TokenSegmentation, YOLOv9_M4, MaskRCNNSwin, EMA, UNETR_MoE_CLIP_RCNN, CascadeRCNN
 from model_archive.dataset import SegmentationDataset, YoloDetectionDataset, SegmentationDataset_ema, MultiModalSegDataset, MultiModalSegCascadeDataset
 from model_archive.train_val import (train_seg, evaluate_seg, test_seg, inference_seg, \
                        train_yolo, evaluate_yolo, test_yolo, inference_yolo, \
@@ -13,6 +13,11 @@ from model_archive.config import Config
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR, MultiStepLR, ExponentialLR, ReduceLROnPlateau, OneCycleLR
 from torch.utils.tensorboard import SummaryWriter
 import os
+from model_archive.rag_library import RetrievalService, Generator
+
+# 初始化服務
+retriever = RetrievalService()
+generator = Generator()
 
 def model_trainvaltest_process(optimizer_type="adam",
                                lr=1e-4,
@@ -27,7 +32,8 @@ def model_trainvaltest_process(optimizer_type="adam",
                                save_dir=None,
                                progress_path=None,
                                patient_id=None,
-                               db_path=None):
+                               db_path=None,
+                               question=None):
 
     all_config = Config()
 
@@ -84,6 +90,8 @@ def model_trainvaltest_process(optimizer_type="adam",
     else:
         writer = None
 
+    seg_description = []
+
     if ml == "dinov2":
         model = DINOv2TokenSegmentation(num_classes=num_classes).to(device)  # 假設 3 類
         model = model.to(device).half() if device.type == "cuda" else model.to(device)
@@ -114,17 +122,15 @@ def model_trainvaltest_process(optimizer_type="adam",
             # Training loop
             for epoch in range(epochs):
                 print(f"Epoch {epoch+1}")
-                loss, training_status = train_seg(model, epoch, epochs, train_dataloader, optimizer, scheduler, loss_fn, device, progress_path)
-
-                if training_status["cancel"] == True:
-                    break
+                loss = train_seg(model, epoch, train_dataloader, optimizer, scheduler, loss_fn, device, progress_path)
                 
-                evaluate_seg(model, val_dataloader, loss_fn, device)
+                metric = evaluate_seg(model, val_dataloader, loss_fn, device, num_classes)
                 torch.save({
                     'epoch': epoch+1,
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': loss,
+                    'metric': metric,
                 }, f"{model_dir}/dinov2_token_segmentation_epoch{epoch+1}.pth")
 
             torch.save({
@@ -132,6 +138,7 @@ def model_trainvaltest_process(optimizer_type="adam",
                 'model_state_dict': model.state_dict(),
                 'optimizer_state_dict': optimizer.state_dict(),
                 'loss': loss,
+                'metric': metric,
             }, f"{model_dir}/dinov2_token_segmentation_final.pth")
             
         else:
@@ -155,17 +162,15 @@ def model_trainvaltest_process(optimizer_type="adam",
 
                 for epoch in range(start_epoch+1, epochs):
                     print(f"Epoch {epoch+1}")
-                    loss, training_status = train_seg(model, epoch, epochs, train_dataloader, optimizer, loss_fn, device, progress_path)
+                    loss = train_seg(model, epoch, train_dataloader, optimizer, loss_fn, device, progress_path)
 
-                    if training_status["cancel"] == True:
-                        break
-
-                    evaluate_seg(model, val_dataloader, loss_fn, device)
+                    metric = evaluate_seg(model, val_dataloader, loss_fn, device, num_classes)
                     torch.save({
                         'epoch': epoch+1,
                         'model_state_dict': model.state_dict(),
                         'optimizer_state_dict': optimizer.state_dict(),
                         'loss': loss,
+                        'metric': metric,
                     }, f"{model_dir}/dinov2_token_segmentation_{epoch+1}.pth")
 
                 torch.save({
@@ -173,6 +178,7 @@ def model_trainvaltest_process(optimizer_type="adam",
                     'model_state_dict': model.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': loss,
+                    'metric': metric,
                 }, f"{model_dir}/dinov2_token_segmentation_final.pth")
                 
             elif mode == "test":
@@ -191,7 +197,7 @@ def model_trainvaltest_process(optimizer_type="adam",
                 inference_dataset = SegmentationDataset(img_size, inference_image_paths, None, image_transform=image_transform_dinov2, mask_transform=None)
                 inference_loader = DataLoader(inference_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn)
                 
-                inference_seg(model, inference_loader, device, input_inference_path=input_inference_path, save_dir=save_dir, progress_path=progress_path, patient_id=patient_id, db_path=db_path)
+                seg_description = inference_seg(model, inference_loader, device, input_inference_path=input_inference_path, save_dir=save_dir, progress_path=progress_path, patient_id=patient_id, db_path=db_path)
 
     elif ml == "yolov9":
 
@@ -614,7 +620,26 @@ def model_trainvaltest_process(optimizer_type="adam",
             inference_dataset = MultiModalSegCascadeDataset(img_size, val_image_paths, val_ann_paths, image_transform=image_transform_cascade, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
             inference_dataloader = DataLoader(inference_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn_cascade)
 
-            inference_cascade_resnet(model, inference_dataloader, class_names, device)
+            seg_description = inference_cascade_resnet(model, inference_dataloader, class_names, device)
+
+    # RAG 檢索
+    if question:
+        contexts = retriever.retrieve(question, top_k=3)
+        # LLM Prompt
+        prompt = (
+            f"Patient image analysis:\n{seg_description}\n\n"
+            f"Question: {question}\n\n"
+            "Use the following medical references:\n" +
+            "\n".join([f"- {c['text']} ({c['source']})" for c in contexts])
+        )
+
+        answer = generator.generate(prompt, contexts)
+
+    return {
+        "segmentation": seg_description,
+        "answer": answer,
+        "citations": [{"source": c["source"], "score": c["score"]} for c in contexts]
+    }
 
 if __name__ == "__main__":
 

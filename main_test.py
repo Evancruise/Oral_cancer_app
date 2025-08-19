@@ -15,13 +15,15 @@ if __name__ == "__main__":
     save_dir = f"{RESULT_DIR}/{patient_id}"
     '''
 
+    question = "Is there any precancerous area? Do I need to go to clinic for further checkup?"
+
     model_trainvaltest_process(
         optimizer_type="adam",
         lr=1e-4,
         scheduler_mode="cosineanneal",
         epochs=10,
         mode="train",
-        ml="cascade_resnet",
+        ml="dinov2",
         model_tuning_enable=False,
         log_enable=False,
         start_epoch=1,
@@ -29,5 +31,6 @@ if __name__ == "__main__":
         save_dir=None,
         progress_path=None,
         patient_id=None,
-        db_path=None
+        db_path=None,
+        question=question
     )

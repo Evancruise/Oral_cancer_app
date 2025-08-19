@@ -104,6 +104,7 @@
             const record_link = document.querySelectorAll(".record-link");
             const record_discard_link = document.querySelectorAll(".record-link-discard");
             let current_patient_id = "";
+            let question = "";
             let clickedButton = null;
             const patient_ids = {{ all_patient_ids | default([]) | tojson }};
             const patientStatusMap = {};
@@ -699,6 +700,10 @@
                             if (key === "patient_id") {
                                 current_patient_id = value;
                             }
+
+                            if (key === "notes") {
+                                question = value;
+                            }
                         }
 
                         if (photo_modal) {
@@ -797,6 +802,10 @@
                             if (key === "patient_id") {
                                 current_patient_id = value;
                             }
+
+                            if (key === "notes") {
+                                question = value;
+                            }
                         }
 
                         if (photo_modal) {
@@ -894,6 +903,10 @@
                             if (key === "patient_id") {
                                 current_patient_id = value;
                             }
+
+                            if (key === "notes") {
+                                question = value;
+                            }
                         }
 
                         if (photo_modal) {
@@ -947,7 +960,7 @@
                                 return;
                             }
 
-                            const res_edit2 = await fetch(`/record/edit/{{ user_id }}`, {
+                            const res_edit2 = await fetch(`/record/edit/{{ user_id }}/${question}`, {
                                 method: "POST",
                                 body: formData
                             });
@@ -962,7 +975,7 @@
 
                             if (data_edit2.status === "ok" && data_edit2.redirect) {
 
-                                fetch(`/record/trigger_infer_process/${current_patient_id}`)
+                                fetch(`/record/trigger_infer_process/${current_patient_id}/${question}`)
                                 .then(response => {
                                     if (response.status === 202) {
                                         console.log("Inference started in background.");
@@ -1132,6 +1145,10 @@
                             if (key === "patient_id") {
                                 current_patient_id = value;
                             }
+
+                            if (key === "notes") {
+                                question = value;
+                            }
                         }
 
                         openResultModal(edit_modal, formData, true);
@@ -1222,6 +1239,10 @@
 
                             if (key === "patient_id") {
                                 current_patient_id = value;
+                            }
+
+                            if (key === "notes") {
+                                question = value;
                             }
                         }
 
@@ -1318,6 +1339,10 @@
                             if (key === "patient_id") {
                                 current_patient_id = value;
                             }
+
+                            if (key === "notes") {
+                                question = value;
+                            }
                         }
 
                         if (photo_modal) {
@@ -1388,7 +1413,7 @@
 
                             if (data_add1.status === "ok" && data_add1.redirect) {
 
-                                fetch(`/record/trigger_infer_process/${current_patient_id}`)
+                                fetch(`/record/trigger_infer_process/${current_patient_id}/${question}`)
                                 .then(response => {
                                     if (response.status === 202) {
                                         console.log("Inference started in background.");
@@ -1559,6 +1584,10 @@
                             if (key === "patient_id") {
                                 current_patient_id = value;
                             }
+
+                            if (key === "notes") {
+                                question = value;
+                            }
                         }
 
                         openResultModal(add_modal, formData, true);
@@ -1648,6 +1677,10 @@
 
                             if (key === "patient_id") {
                                 current_patient_id = value;
+                            }
+
+                            if (key === "notes") {
+                                question = value;
                             }
                         }
 
@@ -1773,6 +1806,10 @@
                             if (key === "patient_id") {
                                 current_patient_id = value;
                             }
+
+                            if (key === "notes") {
+                                question = value;
+                            }
                         }
 
                         const res_delete = await fetch(`/record/resume_delete/{{ user_id }}/${current_patient_id}`, {
@@ -1818,6 +1855,10 @@
                             if (key === "patient_id") {
                                 current_patient_id = value;
                             }
+
+                            if (key === "notes") {
+                                question = value;
+                            }
                         }
 
                         const res_delete2 = await fetch(`/record/resume_delete/{{ user_id }}/${current_patient_id}`, {
@@ -1861,6 +1902,10 @@
 
                             if (key === "patient_id") {
                                 current_patient_id = value;
+                            }
+
+                            if (key === "notes") {
+                                question = value;
                             }
                         }
 

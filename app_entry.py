@@ -17,10 +17,10 @@ import redis, jwt, requests
 import numpy as np
 from linebot.exceptions import InvalidSignatureError
 
-from model_archive.model import YOLOv9_M4, DINOv2TokenSegmentation
 from model_archive.main_entry import model_trainvaltest_process
 from model_archive.config import Config
 from model_archive.utils_func import delete_files_in_folder, move_files_in_folders
+from model_archive.rag_library import RetrievalService, Generator
 
 from werkzeug.utils import secure_filename
 from pyngrok import ngrok
@@ -29,10 +29,12 @@ from flask_socketio import SocketIO, emit
 from linebot import LineBotApi, WebhookHandler
 from flask_cors import CORS
 from linebot.models import (
-    MessageEvent, TextMessage, TextSendMessage, ImageMessage, ImageSendMessage, 
-    TemplateSendMessage, ButtonsTemplate, PostbackAction, PostbackEvent,
-    URIAction, ButtonsTemplate
+    MessageEvent, TextMessage, TextSendMessage
 )
+
+# 初始化服務
+retriever = RetrievalService()
+generator = Generator()
 
 def kill_existing_ngrok():
     for proc in psutil.process_iter(['pid', 'name']):
@@ -49,6 +51,7 @@ app.secret_key = os.getenv("FLASK_SECRET_KEY")
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 socketio = SocketIO(app)
+result_description = None
 
 all_config = Config()
 save_dir = all_config.save_dir
@@ -195,6 +198,37 @@ def view_record(record_id):
         
     return render_template("record_view.html", record=dict(row))
 '''
+
+@app.route("/rag/answer", methods=["POST"])
+def rag_answer():
+    data = request.get_json()
+    if not data or "question" not in data:
+        return jsonify({"error": "question required"}), 400
+
+    question = data["question"].strip()
+    top_k = data.get("top_k", 5)
+    if not question:
+        return jsonify({"error": "question required"}), 400
+
+    # 1) 檢索
+    contexts = retriever.retrieve(question, top_k=top_k)
+
+    # 2) prompt
+    prompt_parts = [
+        "System: You are an assistant that answers using ONLY the provided contexts. Do not hallucinate.",
+        f"Question: {question}",
+        "Contexts:"
+    ]
+    for i, c in enumerate(contexts):
+        prompt_parts.append(f"[{i}] ({c['source']}) {c['text']}")
+    prompt = "\n\n".join(prompt_parts)
+
+    # 3) 生成
+    out_text = generator.generate(prompt, contexts)
+
+    # 4) 回傳
+    citations = [{"source": c["source"], "score": c.get("score", None)} for c in contexts]
+    return jsonify({"answer": out_text, "citations": citations})
 
 def check_db_table():
     # 假設你的資料庫檔案是 records.db
@@ -527,10 +561,12 @@ def retrieve_result(patient_id):
     for i in range(1, 9):
         result = rows[f"img{i}_result"]
         if not result:
-            return jsonify({"message": "not found", "record_dict": None})
+            return jsonify({"message": "not found", "record_dict": None, "description": result_description})
         record_dict[f"img{i}"] = result
 
-    return jsonify({"message": "exist", "record_dict": record_dict})
+    print("result_description:", result_description)
+
+    return jsonify({"message": "exist", "record_dict": record_dict, "description": result_description})
 
 @app.route("/record/new/<record_id>", methods=["POST"])
 def new_record(record_id):
@@ -662,8 +698,8 @@ def cancel_inference(patient_id):
 
     return jsonify({"status": "done", "message": "Inference cancelled."})
 
-@app.route("/record/trigger_infer_process/<patient_id>")
-def inference_process(patient_id):
+@app.route("/record/trigger_infer_process/<patient_id>/<question>")
+def inference_process(patient_id, question):
     # ✅ 先抓資料，在主 request context 內
     optimizer_type = session.get("optimizer_type", "adam")
     lr = session.get("lr", 1e-4)
@@ -677,7 +713,7 @@ def inference_process(patient_id):
     save_dir = f"{RESULT_DIR}/{patient_id}"
 
     def run_inference():
-        model_trainvaltest_process(
+        result_description = model_trainvaltest_process(
             optimizer_type=optimizer_type,
             lr=lr,
             scheduler_mode=scheduler_mode,
@@ -691,8 +727,17 @@ def inference_process(patient_id):
             save_dir=save_dir,
             progress_path=None,
             patient_id=patient_id,
-            db_path=DB_PATH
+            db_path=DB_PATH,
+            question=question
         )
+
+        '''
+        result_description = "{
+            "segmentation": ...,
+            "answer": ...,
+            "citations": [{"source": c["source"], "score": c["score"]} for c in contexts]
+        }"
+        '''
 
     # 背景執行
     thread = threading.Thread(target=run_inference)
@@ -1096,6 +1141,10 @@ def login_redirect():
         return jsonify({"status": "success", "redirect": url_for("top_page")})
     
     return jsonify({"status": "failed", "redirect": url_for("login_page")})
+
+@app.route("/")
+def index():
+    return redirect(url_for("login_page"))
 
 @app.route("/login", methods=['GET', 'POST'])
 def login_page():

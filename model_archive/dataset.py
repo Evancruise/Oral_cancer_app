@@ -77,7 +77,6 @@ class SegmentationDataset(Dataset):
 
     def __getitem__(self, idx):
         # 讀圖片
-        print("self.image_paths:", self.image_paths)
         img_name = self.image_paths[idx].split("\\")[-1]
         img = Image.open(self.image_paths[idx]).convert("RGB")
         # 讀遮罩 (假設是多物件instance mask：每個物件有自己的二元mask，存在一張多通道圖或多張圖中)

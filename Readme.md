@@ -234,24 +234,31 @@ Python 3 (tested on Python 3.7.3), TensorFlow 2.0.0, Keras 2.2.4-tf and other co
     * Windows: https://github.com/philferriere/cocoapi.
     You must have the Visual C++ 2015 build tools on your path (see the repo for additional details)
 
-# Implement PyQt
+# LLM + RAG integration
 
-## Prerequisite
-1. install required packages
+Minimal RAG + LLM FastAPI/FlaskAPI
+- Lightweight retrieval: TF-IDF (scikit-learn)
+- Mock LLM generator by default (optional: call TGI/vLLM via env)
+- Dockerfile included
+- Github Actions CI/CD workflow included
+
+## Quick start
+# [1] Create virutalenv and install
 ```bash
-pip install pyqt5 pyqtgraph pandas trackpy imageio--ffmpeg scikit-image==0.13
+python -m venv .venv
+.venv\bin\activate
+pip install -r requirements.txt
 ```
-If working in the virtual environment tensorflow: it will be under /home/username/tensorflow/lib/python3.5/site-packages/pyqtgraph/graphicitems/
 
-2. wrap the app program
-
+# [2] Run app
 ```bash
-pyinstaller -p utils -p model_resnet -p visualize -w Oralcancerapp.py
+python app_entry.py
 ```
-
-## App screenshot
-
-![](screenshot) ![](screenshot.jpg)
+### Example request
+```bash
+curl -X POST "http://localhost:8000/rag/answer" -H "Content-Type: application/json" \
+      -d '{"question": "What is oral leukoplakia screening suggestion?"}'
+```
 
 ## Model deployment
 

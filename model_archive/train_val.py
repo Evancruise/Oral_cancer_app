@@ -396,35 +396,12 @@ def inference_yolo(model, dataloader, device, class_names, iou_threshold=0.5, co
         # check_progress_status(patient_id, db_path=db_path)
         update_progress_status("done", patient_id, 100, db_path, filename_list)
 
-def train_seg(model, epoch, total_epochs, train_loader, optimizer, scheduler, loss_fn, device, progress_path=None):
+def train_seg(model, epoch, train_loader, optimizer, scheduler, loss_fn, device, progress_path=None):
     
     model.train()
     total_loss = 0
-    training_status = {
-        "epoch": epoch,
-        "total_epochs": total_epochs,
-        "step": 0,
-        "total_steps": 0,
-        "loss": 0,
-        "obj_loss": 0,
-        "cls_loss": 0,
-        "box_loss": 0,
-        "accuracy": 0,
-        "mask_loss": 0,
-        "seg_ce_loss": 0,
-        "clip_seg_loss": 0,
-        "finished": False,
-        "cancel": False
-    }
 
     for i, (imgs, targets, _) in enumerate(train_loader):
-
-        if progress_path:
-            with open(progress_path) as f:
-                training_status = json.load(f)
-                if training_status["cancel"] == True:
-                    return total_loss / (i+1), training_status
-
         imgs = imgs.to(device)
         outputs = model(imgs)
 
@@ -433,12 +410,6 @@ def train_seg(model, epoch, total_epochs, train_loader, optimizer, scheduler, lo
         loss.backward()
         optimizer.step()
         scheduler.step()
-
-        # print(f"Loss: {loss.item():.4f} (CE: {ce_loss.item():.4f}, Dice: {dice_loss.item():.4f})")
-        training_status["epoch"] = epoch+1
-        training_status["step"] = i+1
-        training_status["total_steps"] = len(train_loader)
-        training_status["loss"] = loss.item()
         total_loss += loss.item()
 
         print(f"[Epoch {epoch+1}] Step {i+1}/{len(train_loader)} - loss: {loss.item():.4f} | loss_ce: {loss_ce:.4f} | loss_dice: {loss_dice:.4f}")
@@ -448,7 +419,7 @@ def train_seg(model, epoch, total_epochs, train_loader, optimizer, scheduler, lo
         #        json.dump(training_status, f, indent=2)
     
     avg_loss = total_loss / len(train_loader)
-    return avg_loss, training_status
+    return avg_loss
 
 @torch.no_grad()
 def evaluate_seg(model, dataloader, loss_fn, device, num_classes, save_dir=None, class_names=None):
@@ -463,7 +434,7 @@ def evaluate_seg(model, dataloader, loss_fn, device, num_classes, save_dir=None,
         imgs = imgs.to(device)
 
         outputs = model(imgs)
-        loss = loss_fn(outputs, targets)
+        loss, loss_ce, loss_dice = loss_fn(outputs, targets)
 
         total_loss += loss.item()
         num_batches += 1
@@ -481,18 +452,19 @@ def evaluate_seg(model, dataloader, loss_fn, device, num_classes, save_dir=None,
                 gt_masks.append(gt_mask)
                 gt_labels.append(gt_label)
 
-            gt_masks = torch.stack(gt_masks, dim=0)
-            gt_labels = torch.tensor(gt_labels)
+            if gt_masks and gt_labels:
+                gt_masks = torch.stack(gt_masks, dim=0)
+                gt_labels = torch.tensor(gt_labels)
+                gt_seg_map = torch.zeros_like(pred_label)
 
-            gt_seg_map = torch.zeros_like(pred_label)
-            for inst_mask, cls in zip(gt_masks, gt_labels):
-                gt_seg_map[inst_mask.bool()] = cls.item()
+                for inst_mask, cls in zip(gt_masks, gt_labels):
+                    gt_seg_map[inst_mask[0].bool()] = cls.item()
 
-            gt_np = gt_seg_map.cpu().numpy().flatten()
-            pred_np = pred_label.cpu().numpy().flatten()
+                gt_np = gt_seg_map.cpu().numpy().flatten()
+                pred_np = pred_label.cpu().numpy().flatten()
 
-            all_gt.append(gt_np)
-            all_pred.append(pred_np)
+                all_gt.append(gt_np)
+                all_pred.append(pred_np)
 
             # 可選：儲存預測圖
             if save_dir:
@@ -682,6 +654,8 @@ def inference_seg(model, dataloader, device, class_color_map=None, input_inferen
     if patient_id:
         update_progress_status("in_progress", patient_id, 0, db_path=db_path)
 
+    seg_texts = []
+
     for idx, (imgs, _, img_names) in enumerate(dataloader):
 
         if patient_id:
@@ -695,6 +669,11 @@ def inference_seg(model, dataloader, device, class_color_map=None, input_inferen
 
         for i, img_name in enumerate(img_names):
             pred_mask = outputs["sem_seg"][i]  # [C, H, W]
+            pred_score = outputs["pred_probs"][i]
+            pred_class = outputs["pred_classes"][i]
+
+            seg_texts.append(f"Category: {pred_class} confidence: {pred_score}")
+            
             pred_label = torch.argmax(pred_mask, dim=0).cpu().numpy()  # [H, W]
 
             # 可視化用的彩色 mask
@@ -718,6 +697,9 @@ def inference_seg(model, dataloader, device, class_color_map=None, input_inferen
                 cv2.imwrite(os.path.join(save_dir, f"{img_name}"), overlay)
                 filename_list.append(save_dir + f"/{img_name}")
 
+        seg_description = "\n".join(seg_texts)
+        return seg_description
+    
     if patient_id:
         # check_progress_status(patient_id, db_path=db_path)
         update_progress_status("done", patient_id, 100, db_path, filename_list)
@@ -1454,9 +1436,15 @@ def inference_cascade_resnet(model, dataloader, class_names, device):
 
         colors = plt.cm.get_cmap('tab20', len(class_names))
 
+        seg_texts = {}
+
         for i, (box, label, score, polygons) in enumerate(zip(boxes, labels, scores, polygons_list)):
             if score < 0.5:
                 continue
+            
+            seg_texts.append(
+                f"Category: {label} confidence: {score}"
+            )
 
             # 繪製box
             x1, y1, x2, y2 = box
@@ -1474,3 +1462,7 @@ def inference_cascade_resnet(model, dataloader, class_names, device):
 
         plt.axis('off')
         plt.show()
+
+        seg_description = "\n".join(seg_texts)
+
+        return seg_description

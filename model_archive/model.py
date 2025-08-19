@@ -1050,20 +1050,25 @@ class DINOv2TokenSegmentation(nn.Module):
     def forward(self, x):
         B, _, H, W = x.shape
 
+        # Backbone
         with torch.no_grad():
             swin_outputs = self.backbone(x, output_hidden_states=True)
             patch_tokens = swin_outputs.last_hidden_state  # [B, N, C]
 
+        # Prompt + tokens
         prompt_tokens = self.prompt(B)  # [B, P, C]
         tokens = torch.cat([prompt_tokens, patch_tokens], dim=1)  # [B, P+N, C]
         tokens = tokens.permute(1, 0, 2)  # [P+N, B, C]
 
-        queries = self.query_embed.weight.unsqueeze(1).repeat(1, B, 1)  # [num_queries, B, C]
+        # Queries
+        queries = self.query_embed.weight.unsqueeze(1).repeat(1, B, 1)  # [Q, B, C]
         decoder_output = self.transformer_decoder(queries, tokens).permute(1, 0, 2)  # [B, Q, C]
 
-        class_logits = self.class_head(decoder_output)
+        # Class & mask heads
+        class_logits = self.class_head(decoder_output)   # [B, Q, num_classes+1]
         mask_embed = self.mask_embed_head(decoder_output)
 
+        # Reshape patch tokens for mask prediction
         patch_tokens_count = patch_tokens.shape[1]
         patch_hw = int(patch_tokens_count ** 0.5)
         while patch_hw > 0 and patch_hw * (patch_tokens_count // patch_hw) != patch_tokens_count:
@@ -1075,10 +1080,24 @@ class DINOv2TokenSegmentation(nn.Module):
         mask_pred = torch.einsum("bqc,bchw->bqhw", mask_embed, src)
         mask_pred = F.interpolate(mask_pred, size=(H, W), mode="bilinear", align_corners=False)
 
+        # Semantic segmentation logits
         seg_logits = class_logits.softmax(dim=-1)[..., :-1].permute(0, 2, 1) @ mask_pred.flatten(2)
         seg_logits = seg_logits.view(B, self.num_classes, H, W)
 
-        return {"pred_logits": class_logits, "pred_masks": mask_pred, "sem_seg": seg_logits}
+        # === Confidence scores ===
+        class_probs = class_logits.softmax(dim=-1)               # [B, Q, num_classes+1]
+        pred_probs, pred_classes = class_probs[..., :-1].max(-1) # [B, Q], [B, Q]
+        seg_probs = seg_logits.softmax(dim=1)                    # [B, num_classes, H, W]
+
+        return {
+            "pred_logits": class_logits,     # raw logits
+            "pred_probs": class_probs,       # per-query probabilities
+            "pred_classes": pred_classes,    # predicted class index (no "no object")
+            "pred_conf": pred_probs,         # confidence score per query
+            "pred_masks": mask_pred,         # query masks
+            "sem_seg": seg_logits,           # segmentation logits
+            "sem_seg_probs": seg_probs       # segmentation probabilities
+        }
 
 # ------------------------------
 # Mask2former Model
