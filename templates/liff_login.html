@@ -1,6 +1,19 @@
 {% extends "liff_base.html" %}
 
 {% block content %}
-<h2>歡迎使用，{{ username }}</h2>
+
+<div class="header">
+    <div class="logo"></div>
+    <div class="title">
+      <h1>醫快拍</h1>
+      <small>病歷影像記錄系統</small>
+    </div>
+</div>
+
+<h2>歡迎使用，{{ name }}</h2>
 <!-- 其他頁面內容放這裡 -->
+
+<div class="footer">
+    <a href="#" style="text-decoration:none; font-weight:800; color:#3aa3d1">Mi-tech</a> Copyright © 2019
+</div>
 {% endblock %}

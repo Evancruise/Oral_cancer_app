@@ -102,6 +102,8 @@
             <p class="error-message">{{ error }}</p>
         {% endif %}
         <form method="POST" action="/login_redirect" id="login_form">
+            <label for="name">使用者姓名：</label>
+            <input type="text" id="name" name="name" autocomplete="name" required />
             <label for="username">帳號：</label>
             <input type="text" id="username" name="username" autocomplete="username" required />
             <label for="password">密碼：</label>
@@ -109,6 +111,10 @@
             <button type="submit">登入</button>
             <img src="data:image/png;base64,{{ qr }}" alt="QR Code">
         </form>
+
+        <div class="footer">
+            <a href="#" style="text-decoration:none; font-weight:800; color:#3aa3d1">Mi-tech</a> Copyright © 2019
+        </div>
     </div>
 
     <div id="modal-container"></div>

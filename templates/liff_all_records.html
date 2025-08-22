@@ -1,0 +1,354 @@
+
+<!-- templates/liff_change_pwd.html -->
+{% extends "liff_base.html" %}
+
+{% block content %}
+
+<style>
+  :root{
+    --bg: #ccecf9;
+    --panel: #ffffff;
+    --panel-dark: #f3fbff;
+    --brand: #1596d4;
+    --brand-dark:#0f79ab;
+    --text:#223244;
+    --muted:#6b7b8a;
+    --border:#d4e3ee;
+    --table-head:#0b6d98;
+    --table-head-text:#fff;
+    --row-alt:#f8fbfe;
+    --warn:#f59e0b;
+    --ok:#10b981;
+    --danger:#ef4444;
+  }
+  *{box-sizing: border-box}
+  body{
+    margin:0;
+    background: radial-gradient(ellipse at top,#d9f3ff 0%,var(--bg) 60%) fixed;
+    font-family: "Segoe UI", "Microsoft JhengHei", system-ui, -apple-system, sans-serif;
+    color:var(--text);
+  }
+
+  /* header */
+  .header{
+    max-width: 1100px;
+    margin: 24px auto 8px;
+    padding: 16px 20px;
+    display:flex;
+    align-items:center;
+    gap:14px;
+    border-radius: 18px;
+    background: linear-gradient(180deg,#e9f8ff, #d7f0ff);
+    box-shadow: 0 6px 18px rgba(20,80,120,.12);
+  }
+  .logo{
+    width:64px;height:64px;border-radius:16px;
+    background: #fff;
+    display:grid;place-items:center;
+    box-shadow: inset 0 0 0 2px #e5f4ff;
+  }
+  .logo::before{
+    content:"🅗"; font-size:30px; color:#0ea5e9;
+  }
+  .title{
+    line-height:1.1
+  }
+  .title h1{
+    margin:0; font-size:26px; letter-spacing:.5px; color:#1686c1; font-weight:800;
+  }
+  .title small{
+    display:block; color:#4ea7cf; margin-top:4px; font-weight:600;
+  }
+
+  /* tabs */
+  .tabs{
+    display:flex; gap:8px; padding:10px; background:var(--panel-dark); border-bottom:1px solid var(--border);
+  }
+  .tab{
+    border:1px solid var(--border);
+    background:#fff; color:var(--brand-dark);
+    padding:8px 14px; border-radius:10px; font-weight:700; cursor:pointer;
+    transition:.15s ease;
+  }
+  .tab.active{ background:var(--brand); color:#fff; border-color:transparent; box-shadow: 0 4px 10px rgba(21,150,212,.25); }
+  .tab:hover{ transform: translateY(-1px) }
+
+  /* filters */
+  .filters{
+    display:grid;
+    grid-template-columns: 1.3fr 1fr 1fr 1fr auto;
+    gap:10px; padding:14px 14px 10px;
+    background: #f6fbff;
+    border-bottom:1px solid var(--border);
+  }
+  .field{ display:flex; align-items:center; gap:6px; }
+  .field label{ font-size:12px; color:var(--muted); white-space:nowrap; }
+  .input, select{
+    width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:10px; background:#fff; color:var(--text);
+    outline:none;
+  }
+  .btn-row{ display:flex; gap:8px; justify-content:flex-end; align-items:center; }
+  .btn{ padding:8px 12px; border:0; border-radius:10px; font-weight:700; cursor:pointer; transition:.15s ease; }
+  .btn:active{ transform: translateY(1px) }
+  .btn-primary{ background:var(--brand); color:#fff; }
+  .btn-secondary{ background:#eaf6ff; color:var(--brand-dark); }
+  .btn-warning{ background:#fff4e5; color:#b4690e; }
+  .btn-danger{ background:#ffe5e7; color:#c0363b; }
+
+  /* table */
+  .table-wrap{ padding: 8px 14px 16px; }
+  table{ width:100%; border-collapse: collapse; font-size:14px; overflow:clip; }
+  thead th{
+    background: var(--table-head);
+    color: var(--table-head-text);
+    text-align:left; padding:10px 8px; font-weight:800;
+    position: sticky; top:0; z-index:1;
+  }
+  tbody td{ padding:10px 8px; border-bottom:1px solid #eef5fb; }
+  tbody tr:nth-child(odd){ background: var(--row-alt); }
+  tbody tr:hover{ background:#eef9ff; }
+  .badge{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; }
+  .badge-ok{ background:#e7fbf4; color:#11795d; }
+  .badge-off{ background:#eef2f7; color:#5b6b7a; }
+  .role{ font-weight:700; color:#3c7aa3; }
+
+  .badge{
+    display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700;
+  }
+  .badge.gray{ background:#eef2f7; color:#5b6b7a; }
+  .badge.green{ background:#e7fbf4; color:#11795d; }
+
+  /* pagination */
+  .pagination{
+    display:flex; gap:6px; justify-content:center; align-items:center; padding:6px 0 6px;
+  }
+  .pager{
+    width:32px; height:32px; display:grid; place-items:center; border-radius:8px;
+    border:1px solid var(--border); background:#fff; color:var(--brand-dark); cursor:pointer;
+    transition:.15s ease;
+  }
+  .pager.active{ background:var(--brand); color:#fff; border-color:transparent; font-weight:800; }
+  .pager:hover{ transform: translateY(-1px) }
+
+  /* footer */
+  .footer{
+    text-align:center; color:#6aa8c8; font-size:13px; padding:8px 0 28px;
+  }
+
+  /* responsive */
+  @media (max-width: 880px){
+    .filters{ grid-template-columns: 1fr 1fr; }
+    .btn-row{ grid-column: 1 / -1; justify-content:flex-start; }
+    thead{ display:none; }
+    table, tbody, tr, td{ display:block; width:100%; }
+    tbody tr{ border:1px solid var(--border); border-radius:12px; margin-bottom:10px; padding:6px 6px; }
+    tbody td{ border:0; padding:6px 6px; }
+    tbody td::before{
+      content: attr(data-th) "：";
+      font-weight:700; color:#466a84; margin-right:6px;
+    }
+
+  /* header */
+  .topbar{
+    max-width:1100px; margin:24px auto 8px; padding:16px 20px;
+    display:flex; align-items:center; gap:14px;
+    border-radius:18px; background:linear-gradient(180deg,#e9f8ff,#d7f0ff);
+    box-shadow:0 6px 18px rgba(20,80,120,.12);
+    position:relative;
+  }
+
+    /* action bar */
+  .card{ max-width:1100px; margin:0 auto 28px; background:var(--panel); border-radius:18px; box-shadow:0 10px 28px rgba(15,40,70,.10); overflow:hidden; }
+  .bar{
+    display:flex; justify-content:space-between; align-items:center; gap:12px;
+    padding:10px; background:var(--panel-dark); border-bottom:1px solid var(--border);
+  }
+  .btn{ border:0; padding:8px 12px; border-radius:10px; font-weight:700; cursor:pointer; transition:.15s ease; }
+  .btn:active{ transform:translateY(1px) }
+  .btn-chip{ background:#fff; border:1px solid var(--border); color:#275a74; }
+  .btn-green{ background:#e8fbef; color:#137a55; }
+  .btn-red{ background:#ffe8ea; color:#a92c37; }
+  .btn-blue{ background:#e7f3ff; color:#0f6fb1; }
+  .btn .i{ margin-right:6px }
+  .group{ display:flex; gap:8px; align-items:center; }
+
+  }
+</style>
+
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="logo"></div>
+        <div class="title">
+        <h1>醫快拍</h1>
+        <small>病歷影像記錄系統</small>
+        </div>
+    </div>
+
+    <!-- Main Card -->
+    <div class="card">
+        <!-- Tabs -->
+        <div class="tabs">
+        <button class="tab active" id="tab-upload">上傳紀錄</button>
+        <button class="tab" id="tab-target">目標查詢</button>
+        </div>
+
+        <!-- Filters -->
+        <div class="filters">
+        <div class="field">
+            <label>上傳日期</label>
+            <input class="input" type="text" id="dateRange" placeholder="2024/06/24 - 2024/09/24" />
+        </div>
+        <div class="field">
+            <label>上傳帳號</label>
+            <select id="uploader">
+            <option value="">全部</option>
+            <option selected>test1</option>
+            <option>nurse_a</option>
+            <option>doctor_b</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>分析狀態</label>
+            <select id="status">
+            <option value="">全部</option>
+            <option value="done">已完成</option>
+            <option value="pending">未完成</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>分類標籤</label>
+            <select id="tag">
+            <option>全部</option>
+            <option>口腔</option>
+            <option>牙科</option>
+            <option>其他</option>
+            </select>
+        </div>
+        <div class="btn-row">
+            <button class="btn btn-secondary" id="btn-clean">清除</button>
+            <button class="btn btn-warning">匯入</button>
+            <button class="btn btn-primary" id="btn-search">查詢</button>
+            <button class="btn btn-danger">儲存</button>
+        </div>
+        </div>
+
+        <!-- Table -->
+        <div class="table-wrap">
+        <table id="dataTable" aria-label="上傳紀錄表格">
+            <thead>
+            <tr>
+                <th style="width:16%">建立日期</th>
+                <th style="width:16%">影像案</th>
+                <th style="width:10%">影像數</th>
+                <th style="width:17%">上傳日期</th>
+                <th style="width:12%">上傳人員</th>
+                <th style="width:12%">分析狀態</th>
+                <th>備註</th>
+            </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+        </table>
+
+        <div class="pagination" id="pagination"></div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <a href="#" style="text-decoration:none; font-weight:800; color:#3aa3d1">Mi-tech</a> Copyright © 2019
+    </div>
+
+    <script>
+        /* ---- demo data + simple pager/filter ---- */
+        const rows = {{ grouped_records | default([]) | tojson }}
+        /*
+        [
+            {created:"2024-09-23 17:36:33", case:"240923-173633", count:8, uploaded:"2024-09-23 17:39:27", user:"test1", status:"pending"},
+            {created:"2024-09-23 15:38:35", case:"240923-153835", count:9, uploaded:"2024-09-23 15:49:20", user:"test1", status:"pending"},
+            {created:"2024-09-23 14:59:40", case:"240923-145940", count:8, uploaded:"2024-09-23 15:05:57", user:"test1", status:"pending"},
+            {created:"2024-09-16 17:15:57", case:"240916-171557", count:9, uploaded:"2024-09-16 16:59:56", user:"test1", status:"done"},
+            {created:"2024-09-16 16:03:49", case:"240916-160349", count:9, uploaded:"2024-09-16 16:06:36", user:"test1", status:"done"},
+            {created:"2024-08-13 15:27:33", case:"240813-152733", count:9, uploaded:"2024-08-13 15:23:32", user:"test1", status:"done"},
+            {created:"2024-08-05 17:06:30", case:"240805-170630", count:8, uploaded:"2024-08-06 14:17:04", user:"test1", status:"pending"},
+        ];
+        */
+
+        const pageSize = 5;
+        let currentPage = 1;
+
+        function applyFilters(){
+            const uploader = document.getElementById('uploader').value.trim();
+            const status = document.getElementById('status').value;
+            // (簡化) 僅示意帳號/狀態篩選，日期字串不解析
+            return rows.filter(r =>
+                (uploader ? r.user === uploader : true) &&
+                (status ? r.status === status : true)
+            );
+        }
+
+        function renderTable(page=1) {
+            const data = applyFilters();
+            const start = (page-1)*pageSize, end = start+pageSize;
+            const pageRows = data.slice(start, end);
+            const tbody = document.getElementById('tbody');
+            tbody.innerHTML = pageRows.map(r => {
+                const badge = r.status === 'done'
+                ? '<span class="badge green">已完成</span>'
+                : '<span class="badge gray">未完成</span>';
+                return `
+                <tr>
+                    <td data-th="建立日期">${r.created}</td>
+                    <td data-th="影像案">${r.case}</td>
+                    <td data-th="影像數">${r.count}</td>
+                    <td data-th="上傳日期">${r.uploaded}</td>
+                    <td data-th="上傳人員">${r.user}</td>
+                    <td data-th="分析狀態">${badge}</td>
+                    <td data-th="備註"></td>
+                </tr>`;
+            }).join('');
+
+            // pagination
+            const totalPages = Math.max(1, Math.ceil(data.length / pageSize));
+            const pager = document.getElementById('pagination');
+            const mkBtn = (label, pageNum, active=false, disabled=false) =>
+                `<button class="pager ${active?'active':''}" ${disabled?'disabled':''} data-page="${pageNum}">${label}</button>`;
+            let html = '';
+            html += mkBtn('«', Math.max(1, page-1), false, page===1);
+            for(let i=1;i<=totalPages;i++){
+                html += mkBtn(i, i, i===page);
+            }
+            html += mkBtn('»', Math.min(totalPages, page+1), false, page===totalPages);
+            pager.innerHTML = html;
+
+            pager.querySelectorAll('.pager').forEach(btn=>{
+                btn.addEventListener('click', e=>{
+                const p = Number(e.currentTarget.getAttribute('data-page'));
+                currentPage = p;
+                renderTable(p);
+                });
+            });
+        }
+
+        document.getElementById('btn-search').addEventListener('click', ()=>renderTable(1));
+        document.getElementById('btn-clean').addEventListener('click', ()=>{
+            document.getElementById('uploader').value = '';
+            document.getElementById('status').value = '';
+            document.getElementById('dateRange').value = '';
+            renderTable(1);
+        });
+
+        // fake tab switching (僅示意)
+        document.getElementById('tab-upload').addEventListener('click', ()=>{
+            document.getElementById('tab-upload').classList.add('active');
+            document.getElementById('tab-target').classList.remove('active');
+        });
+        document.getElementById('tab-target').addEventListener('click', ()=>{
+            document.getElementById('tab-target').classList.add('active');
+            document.getElementById('tab-upload').classList.remove('active');
+        });
+
+        renderTable(currentPage);
+    </script>
+</body>
+
+{% endblock %}

@@ -2,7 +2,13 @@
 {% extends "liff_base.html" %}
 
 {% block content %}
-<div class="header"> <i class="fas fa-link"></i> 重新綁定 </div>
+<div class="header">
+    <div class="logo"></div>
+    <div class="title">
+      <h1>醫快拍</h1>
+      <small>病歷影像記錄系統</small>
+    </div>
+</div>
 
 <body>
     <style>
@@ -71,5 +77,9 @@
             document.getElementById("qr-image").src = "/rebind-qr?" + Date.now();
         }
     </script>
+
+    <div class="footer">
+        <a href="#" style="text-decoration:none; font-weight:800; color:#3aa3d1">Mi-tech</a> Copyright © 2019
+    </div>
 </body>
 {% endblock %}
