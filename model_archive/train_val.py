@@ -657,7 +657,7 @@ def inference_seg(model, dataloader, device, class_color_map=None, input_inferen
     seg_texts = []
 
     for idx, (imgs, _, img_names) in enumerate(dataloader):
-
+        
         if patient_id:
             if not check_progress_status(patient_id, db_path=db_path):
                 break

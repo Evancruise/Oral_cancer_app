@@ -276,12 +276,22 @@ gcloud storage ls gs://model-bucket-20250820/models/
 # 3. 建立 Docker image
 ## 把「程式碼 → Docker 映像檔 → 上傳到 GCP 容器登錄（Container Registry / Artifact Registry）」完整跑一次
 ```bash
+# 指定對應的 PROJECT_ID
+gcloud config set project YOUR_PROJECT_ID
+
 gcloud builds submit --tag gcr.io/oral-flask-ai-app-20250820/flask-app
 or
 docker build -t gcr.io/oral-flask-ai-app-20250820/flask-app . (usage: Google Container Registry 的主機名稱(registry)/PROJECT_ID/IMAGE_NAME[:TAG])
 ```
 
-# 4. 部署到 cloud run
+# 4. 本地測試
+```bash
+docker run -p 8080:8080 gcr.io/oral-flask-ai-app-20250820/flask-app
+curl http://localhost:8000/rag/answer -X POST -H "Content-Type: application/json" \
+    -d "{"qestion": "What is leukoplakia?"}"
+```
+
+# 5. 部署到 cloud run 推到 GCP container registry (不運行)
 ```bash
 gcloud run deploy flask-dino-service \
   --image gcr.io/oral-flask-ai-app-20250820/flask-app \
@@ -289,10 +299,14 @@ gcloud run deploy flask-dino-service \
   --region asia-east1 \
   --allow-unauthenticated \
   --set-env-vars MODEL_BUCKET=model-bucket-20250820,MODEL_BLOB=models/dinov2_token_segmentation_final.pth
+
+docker push gcr.io/oral-flask-ai-app-20250820/flask-app:latest
+# push 後確認 GCR 中的 image 是否成功推上去?
+gcloud container images list-tags gcr.io/oral-flask-ai-app-20250820/flask-app
 ```
 
 # [2] 圖片版本管理
-# 1. 啟動 Docker 時掛載 Volume 
+## 1. 啟動 Docker 時掛載 Volume 
 
 ## 方式1: 使用 docker run 掛載目錄
 ```bash
@@ -306,9 +320,36 @@ docker run -d \
 ## 方式2: 執行 docker 指令 (搭配 dockercompose.yaml)
 ```bash
 docker compose up --build .
-docker compose -f infra/docker-compose.yml up --build (可以用-f parser來指定用特定的yml，向這個範例當中的docker-compose.yml是自定義的yaml檔案)
+docker compose -f infra/docker-compose.yml up --build (可以用-f parser來指定用特定的yml，像這個範例當中的docker-compose.yml是自定義的yaml檔案)
 ```
 
+## 2. 推送到雲端 Registry (DockerHub or GCP Artifact Registry)
+# [1] DockerHub 版本
+```bash
+# 登入 DockerHub
+docker login -u <USERNAME> -p <PASSWORD>
+
+# 加入 tag
+docker tag rag-ai-api:latest <USERNAME>/rag-ai-api:latest
+
+# 推上 DockerHub
+docker push <USERNAME>/rag-ai-api:latest
+```
+
+# [2] GCP Artifact Registry
+```bash
+# 授權 gcloud
+gcloud auth configure-docker asia-east1-docker.pkg.dev
+
+# 加入 tag
+docker tag rag-ai-api:latest asia-east1-docker.dev/<PROJECT_ID>/rag-ai/rag-ai:latest
+
+# 推上 GCP
+docker push asia-east1-docker.dev/<PROJECT_ID>/rag-ai/rag-ai-api:latest
+```
+
+# 6. Github Action 撰寫
+## docker-compose.yaml (Docker)
 ```bash
 version: '1'
 services:
@@ -326,6 +367,112 @@ services:
     volumes:
       - ./uploads/images:/usr/share/nginx/html/images
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
+```
+## deployment.yaml (K8s)
+```bash
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-ai-api
+  namespace: staging
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rag-ai-api
+  template:
+    metadata:
+      labels:
+        app: rag-ai-api
+    spec:
+      containers:
+      - name: rag-ai-api
+        image: <USERNAME>/rag-ai-api:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: USE_TGI
+          value: "0"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-ai-service
+  namespace: staging
+spec:
+  selector:
+    app: rag-ai-api
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: LoadBalancer
+```
+
+## 部署到 staging
+```bash
+# 建立 namespace
+kubectl create namespace staging
+
+# 部署
+kubectl apply -f deployment.yaml
+
+# 查看狀態
+kubectl get pods -n staging
+kubectl get svc -n staging
+```
+
+## 滾動更新
+### Rolling Update
+```bash
+# 更新 image
+kubectl set image deployment/rag-ai-api rag-ai-api=<USERNAME>/rag-ai-api:v2 -n staging
+
+# 查看 rollout 狀態
+kubectl rollout status deployment/rag-ai-api -n staging
+```
+### Rollback
+```bash
+kubectl rollout undo deployment/rag-ai-api -n staging
+```
+
+## 部署到 production (確認staging測試沒問題之後，把 namespace: staging 改成 production)
+```bash
+kubectl create namespace production
+kubectl apply -f deployment.yaml --namespace=production
+```
+
+# 7. CI/CD with Github Actions
+## .github/workflow/deploy.yml
+```bash
+name: CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Build Docker
+        uses: docker build -t ${{ secrets.DOCKER_USER }}/rag-ai-api:${{ github.sha }} .
+
+      - name: Push Docker
+        run: |
+          echo "${{ secrets.DOCKER_PASS }}" | docker login -u ${{ secrets.DOCKER_USER }} --password-stdin docker push ${{ secrets.DOCKER_USER }}/rag-ai-api:${{ github.sha }}
+
+      - name: Deploy to K8s (Staging)
+        uses: azure/k8s-deploy@v4
+        with:
+          manifests: |
+            ./k8s/deployment.yaml
+          images: |
+            ${{ secrets.DOCKER_USER }}/rag-ai-api:${{ github.sha }}
+          namespace: staging
 ```
 
 nginx.conf 

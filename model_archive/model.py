@@ -15,12 +15,12 @@ from torchvision.ops import roi_align
 from torchvision.models.detection.rpn import RegionProposalNetwork, RPNHead
 from torchvision.models.detection.rpn import AnchorGenerator
 from model_archive.utils_func import apply_nms_to_proposals_with_index
-from peft import get_peft_model, LoraConfig, TaskType
-from peft.tuners.lora import LoraModel
-from monai.networks.blocks import UnetrBasicBlock
-from einops import rearrange
+# from peft import get_peft_model, LoraConfig, TaskType
+# from peft.tuners.lora import LoraModel
+# from monai.networks.blocks import UnetrBasicBlock
+# from einops import rearrange
 from PIL import Image
-import torchvision.transforms as T
+# import torchvision.transforms as T
 import torchvision.ops as ops
 from torchvision.ops import RoIAlign, MultiScaleRoIAlign, box_iou
 import itertools
@@ -1537,6 +1537,7 @@ class LLMDiagnosisHead(nn.Module):
         return batch_outputs
 
 # ---------------------- UNETR + MoE + RoI + CLIP + Semi-Supervised + LLM ---------------------- #
+'''
 class UNETR_MoE_CLIP_RCNN(nn.Module):
     def __init__(self, in_channels=1, out_channels=4, img_size=(128, 128),
                  feature_size=16, hidden_size=768, num_layers=12,
@@ -1670,3 +1671,4 @@ class UNETR_MoE_CLIP_RCNN(nn.Module):
             masks = F.interpolate(mask_logits, size=(H, W), mode='bilinear', align_corners=False)
 
         return seg_feat, seg_logits, None, masks, None, None, None
+'''

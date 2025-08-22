@@ -1,7 +1,8 @@
 from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
-from model_archive.model import DINOv2TokenSegmentation, YOLOv9_M4, MaskRCNNSwin, EMA, UNETR_MoE_CLIP_RCNN, CascadeRCNN
+# from model_archive.model import DINOv2TokenSegmentation, YOLOv9_M4, MaskRCNNSwin, EMA, UNETR_MoE_CLIP_RCNN, CascadeRCNN
+from model_archive.model import DINOv2TokenSegmentation, YOLOv9_M4, MaskRCNNSwin, EMA, CascadeRCNN
 from model_archive.dataset import SegmentationDataset, YoloDetectionDataset, SegmentationDataset_ema, MultiModalSegDataset, MultiModalSegCascadeDataset
 from model_archive.train_val import (train_seg, evaluate_seg, test_seg, inference_seg, \
                        train_yolo, evaluate_yolo, test_yolo, inference_yolo, \
@@ -345,141 +346,6 @@ def model_trainvaltest_process(optimizer_type="adam",
             test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn)
             
             inference_maskrcnn_ema(model, test_dataloader, device, class_names=class_names, class_color_map=class_color_map, visualize=False, save_dir=save_dir, conf_thresh=0.5, patient_id=patient_id, db_path=db_path)
-
-    elif ml == "unetr_moe":
-
-        model = UNETR_MoE_CLIP_RCNN(
-            in_channels=num_classes,
-            out_channels=num_classes+1,           # 分類數量
-            img_size=resize_img_size,
-            feature_size=16,
-            hidden_size=768,
-            num_layers=12,
-            roi_output_size=(7,7),
-            num_heads=12              # 自動算 hidden_size，會是 num_patches * base_dim 向上取整
-        )
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        '''
-        if model_tuning_enable == True:
-            # 選擇只訓練 prompt 與 decoder 等模組的參數
-            trainable_parameters = list(model.prompt.parameters()) + \
-                            list(model.query_embed.parameters()) + \
-                            list(model.transformer_decoder.parameters()) + \
-                            list(model.class_head.parameters()) + \
-                            list(model.mask_embed_head.parameters())
-
-            model_info(model, trainable_parameters)
-        else:
-            trainable_parameters = model.parameters()
-        '''
-        trainable_parameters = model.parameters()
-
-        criterion = CLIP_MultiTaskLoss()
-
-        if mode == "train":
-            # Training loop
-            # best_dice = 0.0
-
-            #with mlflow.start_run() as run:
-            #    run_id = run.info.run_id
-            #    print("Run ID:", run_id)
-
-            train_dataset = MultiModalSegDataset(img_size, train_image_paths, train_ann_paths, image_transform=image_transform_moe, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
-            val_dataset = MultiModalSegDataset(img_size, val_image_paths, val_ann_paths, image_transform=image_transform_moe, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
-            
-            train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn_moe)
-            val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn_moe)
-
-            steps_per_epoch = len(train_dataloader)
-            optimizer, scheduler = optimizer_setup(optimizer_type, scheduler_mode, trainable_parameters, steps_per_epoch, lr, weight_decay, epochs, train_dataloader)
-
-            for epoch in range(epochs):
-                train_loss, training_status = train_segmentation_model_moe(model, epoch, epochs, train_dataloader, optimizer, criterion, scheduler, device, writer=writer, progress_path=progress_path)
-                if training_status["cancel"] == True:
-                    break
-
-                val_dict = validate_segmentation_model_moe(model, val_dataloader, criterion, scheduler, device, epoch, writer=writer)
-
-                val_loss = val_dict["val_loss"]
-                acc = val_dict["val_acc"]
-                precision = val_dict["val_precision"]
-                iou = val_dict["val_iou"]
-
-                #mlflow.log_metric("accuracy", acc)
-                #mlflow.log_metric("precision", precision)
-                #mlflow.log_metric("iou", iou)
-                #mlflow.log_metric("train_loss", train_loss)
-                #mlflow.log_metric("val_loss", val_loss)
-                #mlflow.sklearn.log_model(model, "unetr_moe_model")
-                torch.save(model.state_dict(), f"{model_dir}/unetr_moe_model_epoch{epoch+1}.pth")
-
-            # mlflow.register_model(model_uri=f"runs:/{run_id}/unetr_moe_model", name="UNETR_MOE_Model")
-            torch.save(model.state_dict(), f"{model_dir}/unetr_moe_model_final.pth")
-
-        elif mode == "continue_train":
-            
-            train_dataset = MultiModalSegDataset(img_size, train_image_paths, train_ann_paths, image_transform=image_transform_moe, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
-            val_dataset = MultiModalSegDataset(img_size, val_image_paths, val_ann_paths, image_transform=image_transform_moe, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
-            
-            train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn_moe)
-            val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn_moe)
-
-            steps_per_epoch = len(train_dataloader)
-            optimizer, scheduler = optimizer_setup(optimizer_type, scheduler_mode, trainable_parameters, steps_per_epoch, lr, weight_decay, epochs, train_dataloader)
-
-            checkpoint = load_checkpoint(model, optimizer, f"{model_dir}/unetr_moe_model_final.pth", device)
-            epochs = checkpoint['epoch'] + epochs
-
-            #with mlflow.start_run() as run:
-            #    run_id = run.info.run_id
-            #    print("Run ID:", run_id)
-
-            for epoch in range(start_epoch, epochs):
-                train_loss, training_status = train_segmentation_model_moe(model, epoch, epochs, train_dataloader, optimizer, criterion, device, epoch, print_every=10, writer=writer, progress_path=progress_path)
-                if training_status["cancel"] == True:
-                    break
-                val_dict = validate_segmentation_model_moe(model, val_dataloader, criterion, device, epoch, writer=writer)
-
-                val_loss = val_dict["val_loss"]
-                acc = val_dict["val_acc"]
-                precision = val_dict["val_precision"]
-                iou = val_dict["val_iou"]
-
-                #mlflow.log_metric("accuracy", acc)
-                #mlflow.log_metric("precision", precision)
-                #mlflow.log_metric("iou", iou)
-                #mlflow.log_metric("train_loss", train_loss)
-                #mlflow.log_metric("val_loss", val_loss)
-                #mlflow.sklearn.log_model(model, "model")
-                torch.save(model.state_dict(), f"{model_dir}/unetr_moe_model_epoch{epoch+1}.pth")
-
-                #mlflow.register_model(model_uri=f"runs:/{run_id}/unetr_moe_model", name="UNETR_MOE_Model")
-            
-            torch.save(model.state_dict(), f"{model_dir}/unetr_moe_model_final.pth")
-
-        elif mode == "test":
-            
-            test_dataset = MultiModalSegDataset(img_size, test_image_paths, test_ann_paths, image_transform=image_transform_moe, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
-            test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn_moe)
-
-            model.load_state_dict(torch.load(f"{model_dir}/unetr_moe_model_final.pth"))
-            # model = mlflow.pytorch.load_model(f"runs:/{run_id}/unetr_moe_model")
-            # checkpoint = load_checkpoint(model, optimizer, f"{model_dir}/unetr_moe_best_model_epoch{start_epoch}.pth", device)
-            evaluate_segmentation_model_moe(model, test_dataloader, criterion, device, num_classes=num_classes+1, class_names=class_names, visualize_cm=False)
-        
-        elif mode == "inference":
-            
-            if inference_image_paths:
-                inference_dataset = MultiModalSegDataset(img_size, inference_image_paths, ann_paths=None, image_transform=image_transform_moe, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
-                inference_dataloader = DataLoader(inference_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn_moe)
-            else:
-                exit(-1)
-
-            model.load_state_dict(torch.load(f"{model_dir}/unetr_moe_model_final.pth"))
-            # model = mlflow.pytorch.load_model(f"runs:/{run_id}/unetr_moe_model")
-            # checkpoint = load_checkpoint(model, optimizer, f"{model_dir}/unetr_moe_best_model_epoch{start_epoch}.pth", device)
-            inference_segmentation_mode_moe(model, inference_dataloader, device, class_color_map, class_names=class_names, save_dir=save_dir, patient_id=patient_id, db_path=db_path)
 
     elif ml == "cascade_resnet":
 
