@@ -21,6 +21,7 @@ if __name__ == "__main__":
 
     question = "Is there any precancerous area? Do I need to go to clinic for further checkup?"
 
+    print("Entering process...")
     model_trainvaltest_process(
         optimizer_type="adam",
         lr=1e-4,
