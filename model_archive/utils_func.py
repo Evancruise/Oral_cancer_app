@@ -829,6 +829,7 @@ def move_files_in_folders(src_dir, dst_dir):
     for filename in os.listdir(src_dir):
         src_path = os.path.join(src_dir, filename)
         dst_path = os.path.join(dst_dir, filename)
+        os.makedirs(dst_path, exist_ok=True)
 
         if os.path.isfile(src_path):
             shutil.move(src_path, dst_path)  # 直接搬移
