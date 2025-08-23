@@ -17,6 +17,7 @@ import redis, jwt, requests
 import numpy as np
 from linebot.exceptions import InvalidSignatureError
 from google.cloud import storage
+from init_database_sql import init_db
 
 from model_archive.main_entry import model_trainvaltest_process
 from model_archive.config import Config
@@ -106,17 +107,18 @@ def download_model_from_gcs():
     blob.download_to_filename(MODEL_DIR)
     print(f"✅ 模型已下載到 {MODEL_DIR}")
 
+'''
 # Initialize the SQLite database
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
     # 建立 users 表
-    cursor.execute('''
+    cursor.execute("""
         DROP TABLE IF EXISTS users;
-    ''')
+    """)
 
-    cursor.execute('''
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             qr_session_id TEXT,
@@ -129,14 +131,14 @@ def init_db():
             note TEXT,
             unit TEXT
         )
-    ''')
+    """)
 
     # 建立 records 表
-    cursor.execute('''
+    cursor.execute("""
         DROP TABLE IF EXISTS records;
-    ''')
+    """)
 
-    cursor.execute('''
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -167,14 +169,14 @@ def init_db():
             img7_result TEXT,
             img8_result TEXT
         )
-    ''')
+    """)
 
     # 建立 records 表 (垃圾桶)
-    cursor.execute('''
+    cursor.execute("""
         DROP TABLE IF EXISTS records_gb;
-    ''')
+    """)
 
-    cursor.execute('''
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS records_gb (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
@@ -205,12 +207,11 @@ def init_db():
             img7_result TEXT,
             img8_result TEXT
         )
-    ''')
+    """)
 
     conn.commit()
     conn.close()
-
-init_db()
+'''
 
 '''
 @app.route("/record/view/<record_id>")
