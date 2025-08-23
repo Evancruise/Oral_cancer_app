@@ -234,17 +234,18 @@
         </div>
 
         <!-- Table -->
-        <div class="table-wrap">
+        <div class="table-record-wrap">
         <table id="dataTable" aria-label="上傳紀錄表格">
             <thead>
             <tr>
                 <th style="width:16%">建立日期</th>
-                <th style="width:16%">影像案</th>
+                <th style="width:16%">影像案例編號</th>
                 <th style="width:10%">影像數</th>
                 <th style="width:17%">上傳日期</th>
                 <th style="width:12%">上傳人員</th>
                 <th style="width:12%">分析狀態</th>
                 <th>備註</th>
+                <th></th>
             </tr>
             </thead>
             <tbody id="tbody"></tbody>
@@ -260,7 +261,9 @@
 
     <script>
         /* ---- demo data + simple pager/filter ---- */
-        const rows = {{ grouped_records | default([]) | tojson }}
+        const rows = {{ grouped_records | tojson }}
+
+        console.log("rows:", rows)
         /*
         [
             {created:"2024-09-23 17:36:33", case:"240923-173633", count:8, uploaded:"2024-09-23 17:39:27", user:"test1", status:"pending"},
@@ -287,9 +290,10 @@
         }
 
         function renderTable(page=1) {
-            const data = applyFilters();
+            // const data = applyFilters();
             const start = (page-1)*pageSize, end = start+pageSize;
-            const pageRows = data.slice(start, end);
+            // const pageRows = data.slice(start, end);
+            const pageRows = rows.slice(start, end);
             const tbody = document.getElementById('tbody');
             tbody.innerHTML = pageRows.map(r => {
                 const badge = r.status === 'done'
@@ -298,17 +302,30 @@
                 return `
                 <tr>
                     <td data-th="建立日期">${r.created}</td>
-                    <td data-th="影像案">${r.case}</td>
+                    <td data-th="影像案例編號">${r.case}</td>
                     <td data-th="影像數">${r.count}</td>
                     <td data-th="上傳日期">${r.uploaded}</td>
                     <td data-th="上傳人員">${r.user}</td>
                     <td data-th="分析狀態">${badge}</td>
-                    <td data-th="備註"></td>
+                    <td data-th="備註">${r.notes || ''}</td>
+                    <td data-yj="查看">
+                      <button type="button" class="view_btn btn btn-sm btn-primary"
+                              data-bs-toggle="modal" data-bs-target="#viewAllRecordModal"
+                              data-f-createtime="${r.created ?? ''}"
+                              data-f-case="${r.case ?? ''}"
+                              data-f-count="${r.count ?? ''}"
+                              data-f-uploadtime="${r.uploaded ?? ''}"
+                              data-f-user="${r.user ?? ''}"
+                              data-f-status="${r.status ?? ''}"
+                              data-f-notes="${r.notes ?? ''}">
+                        查看
+                      </button>
+                    </td>
                 </tr>`;
             }).join('');
 
             // pagination
-            const totalPages = Math.max(1, Math.ceil(data.length / pageSize));
+            const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
             const pager = document.getElementById('pagination');
             const mkBtn = (label, pageNum, active=false, disabled=false) =>
                 `<button class="pager ${active?'active':''}" ${disabled?'disabled':''} data-page="${pageNum}">${label}</button>`;
@@ -351,4 +368,51 @@
     </script>
 </body>
 
+<div class="modal fade" id="viewAllRecordModal" tabindex="-1" aria-labelledby="viewAllRecordModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" enctype="multipart/form-data" class="card p-4" id="all_record_form">
+                <div class="modal-header custom-modal-header">
+                    <h5 class="modal-title animated-title" id="viewAllRecordModalLabel">
+                        <i class="fas fa-edit fa-beat"></i> 查看病歷紀錄
+                    </h5>
+                </div>
+
+                <div class="modal-body">
+                  <div class="mb-3">
+                    <label class="form-label">建立日期</label>
+                    <input name="f_createtime" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">影像案例編號</label>
+                    <input name="f_case" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">影像數</label>
+                    <input name="f_count" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">上傳日期</label>
+                    <input name="f_uploadtime" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">上傳人員</label>
+                    <input name="f_user" class="form-control">
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label">分析狀態</label>
+                    <input name="f_status" class="form-control">
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label">備註</label>
+                    <textarea name="f_notes" class="form-control" rows="3"></textarea>
+                  </div>
+                </div>
+                <div class="mt-3 d-flex gap-2 justify-content-end">
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 {% endblock %}

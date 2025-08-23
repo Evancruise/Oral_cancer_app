@@ -1081,48 +1081,50 @@ def datetime_convert(stimestamp):
 
 @app.route('/all_history')
 def all_history():
-
-    if "password" in session and session["password"] == PASSWORD_ROOT:
-        return render_template("liff_all_records.html")
     
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
-    patient_id_dict = defaultdict(list)
 
     cursor.execute("SELECT * FROM records ORDER BY last_timestamp DESC")
     rows = cursor.fetchall()
 
-    username = session["username"]
+    print("rows:", rows)
+    history_dict = defaultdict(list)
 
-    grouped = []
+    username = session["username"]
     for row in rows:
 
         start_date_display = datetime_convert(row['start_timestamp'])
         last_date_display = datetime_convert(row['last_timestamp'])
 
         current_table = {
-            'created': start_date_display,
+            'created': row['start_timestamp'],
             'case': row['patient_id'],
-            'uploaded': last_date_display,
+            'uploaded': row['last_timestamp'],
             'user': row['name'],
             'status': row['status'],
-            'notes': row['notes']
+            'notes': row['notes'],
+            'count': 1
         }
 
         print("current_table:", current_table)
-
-        grouped.append(current_table)
-        patient_id_dict[row['start_timestamp']].append(row['patient_id'])
+        history_dict[row['start_timestamp']] = current_table
     
     if "user_id" not in session:
         return redirect(url_for('index'))
 
-    print("dict(grouped):", dict(grouped))
+    print("dict(history_dict):", dict(history_dict))
     conn.commit()
     conn.close()
 
-    return render_template("liff_all_record.html", grouped_records=dict(grouped), priority=retrieve_priority(username))
+    history_list = []
+    for ts, data in history_dict.items():
+        row = data.copy()
+        row["timestamp"] = ts
+        history_list.append(row)
+
+    return render_template("liff_all_records.html", grouped_records=history_list, priority=retrieve_priority(username))
 
 @app.route('/history')
 def history():

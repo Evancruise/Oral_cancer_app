@@ -29,12 +29,12 @@
             </li>
             <li>
                 <a class="nav-link {{ 'active' if request.path == '/all_history' else '' }}" style="display: {{ 'flex' if (priority|default(0, true)|int == 1) else 'flex' }};" href="/all_history">
-                    <i class="fas fa-history"></i> 所有病歷紀錄 (僅限管理權限者使用)
+                    <i class="fas fa-history"></i> 所有病歷紀錄
                 </a>
             </li>
             <li>
                 <a class="nav-link {{ 'active' if request.path == '/all_account' else '' }}" style="display: {{ 'flex' if (priority|default(0, true)|int == 1) else 'flex' }};" href="/all_account">
-                    <i class="fas fa-history"></i> 帳號管理 (僅限管理權限者使用)
+                    <i class="fas fa-history"></i> 帳號管理
                 </a>
             </li>
             <li>
@@ -123,6 +123,7 @@
             const record_discard_link = document.querySelectorAll(".record-link-discard");
 
             const table_wraps = document.querySelectorAll(".table-wrap");
+            const table_record_wraps = document.querySelectorAll(".table-record-wrap");
 
             let current_patient_id = "";
             let question = "";
@@ -697,6 +698,45 @@
                         modal.querySelector("select[name='f_status']").value = fStatus  || 'deactivated';
                         modal.querySelector("textarea[name='f_note']").value = fNote    || '';
                         
+                    });
+                });
+            }
+
+            if (table_record_wraps) {
+                table_record_wraps.forEach(wrap => {
+                    wrap.addEventListener('click', (e) => {
+                        const btn = e.target.closest('.view_btn');
+                        if (!btn || !wrap.contains(btn)) return;  // 不是點到「修改」就略過
+
+                        console.log(btn.dataset);
+                        // 這裡就可以用 dataset（kebab 會轉 camelCase）
+                        const { fCreatetime, fCase, fCount, fUploadtime, fUser, fStatus, fNotes } = btn.dataset;
+
+                        console.log(fCreatetime, fCase, fCount, fUploadtime, fUser, fStatus, fNotes);
+
+                        const modal = document.getElementById("viewAllRecordModal");
+
+                        modal.querySelector("input[name='f_createtime']").value = fCreatetime || '';
+                        modal.querySelector("input[name='f_case']").value    = fCase    || '';
+                        modal.querySelector("input[name='f_count']").value    = fCount    || '';
+                        modal.querySelector("input[name='f_uploadtime']").value    = fUploadtime    || '';
+                        modal.querySelector("input[name='f_user']").value    = fUser    || 'tester';
+                        modal.querySelector("input[name='f_status']").value = fStatus  || 'deactivated';
+                        modal.querySelector("textarea[name='f_notes']").value = fNotes    || '';
+
+                        /*                        
+                        <button type="button" class="view_btn btn btn-sm btn-primary"
+                              data-bs-toggle="modal" data-bs-target="#viewRecordModal"
+                              data-f-createtime="${r.created ?? ''}"
+                              data-f-case="${r.case ?? ''}"
+                              data-f-count="${r.count ?? ''}"
+                              data-f-uploadtime="${r.uploaded ?? ''}"
+                              data-f-user="${r.user ?? ''}"
+                              data-f-status="${r.status ?? ''}"
+                              data-f-notes="${r.notes ?? ''}">
+                        查看
+                      </button>
+                        */
                     });
                 });
             }
