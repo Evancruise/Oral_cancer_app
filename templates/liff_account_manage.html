@@ -224,7 +224,8 @@
         <div class="group">
             <!-- <button class="btn btn-green" id="btn-gen"><span class="i">🔐</span>產生密碼</button> -->
             <!-- <button class="btn btn-red" id="btn-logout"><span class="i">🚪</span>登出</button> -->
-            <button class="btn btn-blue" id="btn-add"><span class="i">🧑‍💼</span>新增使用者</button>
+            <!--<button class="btn btn-blue" id="btn-add"><span class="i">🧑‍💼</span>新增使用者</button>-->
+            <button class="btn btn-blue" id="btn-add" data-bs-toggle="modal" data-bs-target="#NewAccountModal"><span class="i">🧑‍💼</span>新增使用者</button>
         </div>
         </div>
 
@@ -232,12 +233,13 @@
         <table id="userTable" aria-label="使用者清單">
             <thead>
             <tr>
-                <th style="width:18%">帳號</th>
-                <th style="width:16%">姓名</th>
-                <th style="width:20%">單位</th>
+                <th style="width:9%">帳號</th>
+                <th style="width:8%">姓名</th>
+                <th style="width:8%">密碼</th>
+                <th style="width:15%">單位</th>
                 <th style="width:12%">身分</th>
-                <th style="width:12%">狀態</th>
-                <th>備註</th>
+                <th style="width:6%">狀態</th>
+                <th style="width:20%">備註</th>
                 <th></th>
             </tr>
             </thead>
@@ -297,6 +299,7 @@
                 <tr>
                     <td data-th="帳號">${u.account}</td>
                     <td data-th="姓名">${u.name}</td>
+                    <td data-th="密碼">${u.password}</td>
                     <td data-th="單位">${u.unit || ''}</td>
                     <td data-th="身分">${role}</td>
                     <td data-th="狀態">${statusBadge}</td>
@@ -306,6 +309,7 @@
                               data-bs-toggle="modal" data-bs-target="#curAccountModal"
                               data-f-account="${u.account ?? ''}"
                               data-f-name="${u.name ?? ''}"
+                              data-f-password="${u.password ?? ''}"
                               data-f-unit="${u.unit ?? ''}"
                               data-f-role="${u.role ?? ''}"
                               data-f-status="${u.status ?? ''}"
@@ -346,9 +350,11 @@
         }
 
         /* demo actions */
+        /*
         document.getElementById('btn-gen').addEventListener('click', ()=>alert('已為選取的使用者產生新密碼（示意）。'));
         document.getElementById('btn-logout').addEventListener('click', ()=>alert('已登出（示意）。'));
         document.getElementById('btn-add').addEventListener('click', ()=>alert('開啟「新增使用者」視窗（示意）。'));
+        */
 
         if (users != {}) {
             renderTable(currentPage);
@@ -374,6 +380,66 @@
                   <div class="mb-3">
                     <label class="form-label">姓名</label>
                     <input name="f_name" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">密碼</label>
+                    <input name="f_password" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">單位</label>
+                    <input name="f_unit" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">身分</label>
+                    <select name="f_role" class="form-select">
+                      <option value="system manager">系統管理者</option>
+                      <option value="resource manager">資源管理者</option>
+                      <option value="tester">試用者</option>
+                    </select>
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label">狀態</label>
+                    <select name="f_status" class="form-select">
+                      <option value="activated">啟用</option>
+                      <option value="deactivated">停用</option>
+                    </select>
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label">備註</label>
+                    <textarea name="f_note" class="form-control" rows="3"></textarea>
+                  </div>
+                </div>
+                <div class="mt-3 d-flex gap-2 justify-content-end">
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                  <button type="submit" class="btn btn-primary">儲存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="NewAccountModal" tabindex="-1" aria-labelledby="NewAccountModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" enctype="multipart/form-data" action="/record/confirm_add_account" class="card p-4" id="add_account_form">
+                <div class="modal-header custom-modal-header">
+                    <h5 class="modal-title animated-title" id="NewAccountModalLabel">
+                        <i class="fas fa-edit fa-beat"></i> 新增使用者
+                    </h5>
+                </div>
+
+                <div class="modal-body">
+                  <div class="mb-3">
+                    <label class="form-label">帳號</label>
+                    <input name="f_account" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">姓名</label>
+                    <input name="f_name" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">密碼</label>
+                    <input name="f_password" class="form-control">
                   </div>
                   <div class="mb-3">
                     <label class="form-label">單位</label>
