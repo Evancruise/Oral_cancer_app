@@ -98,11 +98,15 @@
             const delete_form = document.getElementById("delete_form");
             const upload_form = document.getElementById("upload_form");
             const changepwd_form = document.getElementById("changepwd_form");
+            const account_form = document.getElementById("account_form");
+            const add_account_form = document.getElementById("add_account_form");
+
             const add_modal = document.getElementById("newRecordModal");
             const edit_modal = document.getElementById("editRecordModal");
             const result_modal = document.getElementById("resultRecordModal");
             
-            const account_model = document.getElementById("curAccountModal");
+            const account_modal = document.getElementById("curAccountModal");
+            const add_account_modal = document.getElementById("newAccountModal");
 
             const photo_modal = document.getElementById("PhotoModal");
 
@@ -207,8 +211,41 @@
                 });
 
                 photo_modal.addEventListener("click", async function(e) {
+                    if (e.target.id.startsWith("prev")) {
+                        e.preventDefault();
+
+                        // openNextModal();
+                        console.log(photo_modal.dataset.prev_modalname);
+
+                        const currentModal = bootstrap.Modal.getInstance(photo_modal);
+                        if (currentModal) currentModal.hide();
+
+                        let prev_modal = null;
+                        const prev_modal_name = photo_modal.dataset.prev_modalname;
+
+                        if (prev_modal_name == "edit") {
+                            prev_modal = bootstrap.Modal.getInstance(edit_modal);
+                        } else if (prev_modal_name == "add") {
+                            prev_modal = bootstrap.Modal.getInstance(add_modal);
+                        }
+
+                        if (prev_modal) {
+                            prev_modal.show();
+                        }
+                    }
+                    if (e.target.id.startsWith("reset")) {
+                        document.getElementById("video").style.display = "flex";
+                        document.getElementById("result_img").src = "";
+                        document.getElementById("resetBtn").classList.add("d-none");
+
+                        // 啟動攝影機（只打開一次也可以，視需求）
+                        navigator.mediaDevices.getUserMedia({ video: true })
+                            .then(stream => { document.getElementById("video").srcObject = stream; });
+                    }
                     if (e.target.id.startsWith("capture")) {
                         e.preventDefault();
+
+                        document.getElementById("resetBtn").classList.remove("d-none");
 
                         const code = photo_modal.dataset.currentCode;
                         const prev_modal_name = photo_modal.dataset.prev_modalname;
@@ -257,6 +294,8 @@
                                 console.log(key, value);
                             }
                         }, "image/png");
+
+                        video.style.display = "none";
                     }
 
                     if (e.target.id.startsWith("upload")) {
@@ -581,7 +620,14 @@
 
             document.querySelectorAll("#changepwd_form button[type=submit]").forEach(btn => {
                 btn.addEventListener("click", () => {
-                    console.log("delete_form tag triggered!");
+                    console.log("changepwd_form tag triggered!");
+                    clickedButton = btn;
+                });
+            });
+
+            document.querySelectorAll("#account_form button[type=button]").forEach(btn => {
+                btn.addEventListener("click", () => {
+                    console.log("account_form tag triggered!");
                     clickedButton = btn;
                 });
             });
@@ -633,10 +679,11 @@
                         const btn = e.target.closest('.modify_btn');
                         if (!btn || !wrap.contains(btn)) return;  // 不是點到「修改」就略過
 
+                        console.log(btn.dataset);
                         // 這裡就可以用 dataset（kebab 會轉 camelCase）
-                        const { fAccount, fName, fUnit, fRole, fStatus, fNote } = btn.dataset;
+                        const { fAccount, fName, fPassword, fUnit, fRole, fStatus, fNote } = btn.dataset;
 
-                        console.log(fAccount, fName, fUnit, fRole, fStatus, fNote);
+                        console.log(fAccount, fName, fPassword, fUnit, fRole, fStatus, fNote);
 
                         const modal = document.getElementById("curAccountModal");
 
@@ -644,6 +691,7 @@
                         
                         modal.querySelector("input[name='f_account']").value = fAccount || '';
                         modal.querySelector("input[name='f_name']").value    = fName    || '';
+                        modal.querySelector("input[name='f_password']").value    = fPassword    || '';
                         modal.querySelector("input[name='f_unit']").value    = fUnit    || '';
                         modal.querySelector("select[name='f_role']").value    = fRole    || 'tester';
                         modal.querySelector("select[name='f_status']").value = fStatus  || 'deactivated';
@@ -1133,7 +1181,7 @@
                                             }
                                         } catch (pollErr) {
                                             clearInterval(intervalId);
-                                            showModal("輪詢過程出錯：" + pollErr.message, () => {
+                                            showModal("輪詢過程出錯：" + pollErr.message + " 請確認圖片是否完整上傳", () => {
                                                 console.log("使用者點擊 OK");
                                             }, () => {
                                                 console.log("使用者點擊 Cancel");
@@ -1195,7 +1243,7 @@
                             }
                         }
 
-                        openResultModal(edit_modal, formData, true);
+                        openNextModal(edit_modal, formData, result_modal);
 
                         const pollingInterval = 3000; // 每 3 秒查一次
                         const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
@@ -1239,7 +1287,7 @@
                                 }
                             } catch(pollErr) {
                                 clearInterval(intervalId);
-                                showModal("輪詢過程出錯：" + pollErr.message, () => {
+                                showModal("輪詢過程出錯：" + pollErr.message + " 請確認圖片是否完整上傳", () => {
                                     console.log("使用者點擊 OK");
                                 }, () => {
                                     console.log("使用者點擊 Cancel");
@@ -1256,31 +1304,32 @@
                 bindImageUploadPreview(parts, edit_form);
             }
 
-            if (account_form) {
-                account_form.addEventListener("submit", async function(e) {
+            if (add_account_modal) {
+                add_account_modal.addEventListener("submit", async function(e) {
                     e.preventDefault();
 
-                    const formData = new FormData(account_form);
+                    const formData = new FormData(add_account_form);
 
-                    if (account_model) {
+                    if (add_account_modal) {
+
                         try {
-                            const res_account = await fetch(`/record/confirm_account`, {
+                            const res_add_account = await fetch(`/record/confirm_add_account`, {
                                 method: "POST",
                                 body: formData
                             });
 
-                            const data_account = await res_account.json();
-                            console.log("data:", data_account);
+                            const data_add_account = await res_add_account.json();
+                            console.log("data:", data_add_account);
 
-                            if (!data_account || !data_account.status) {
+                            if (!data_add_account || !data_add_account.status) {
                                 throw new Error("回傳格式錯誤");
                                 return;
                             }
 
-                            if (data_account.status === "ok") {
-                                showModal("修改設定成功", () => {
+                            if (data_add_account.status === "ok") {
+                                showModal("新增設定成功", () => {
                                     console.log("使用者點擊 OK");
-                                    window.location.href = data_account.redirect;
+                                    window.location.href = data_add_account.redirect;
                                 }, () => {
                                     console.log("使用者點擊 Cancel");
                                 });
@@ -1294,6 +1343,55 @@
                         }
                         catch (err) {
                             console.log("發生錯誤");
+                        }
+                    }
+                });
+            }
+
+            if (account_form) {
+                account_form.addEventListener("submit", async function(e) {
+                    e.preventDefault();
+
+                    const formData = new FormData(account_form);
+
+                    if (account_modal) {
+
+                        if (clickedButton && clickedButton.value === "prev") {
+                            openNextModal(account_modal, formData, result_modal);
+                        }   
+                        else {
+                            try {
+                                const res_account = await fetch(`/record/confirm_account`, {
+                                    method: "POST",
+                                    body: formData
+                                });
+
+                                const data_account = await res_account.json();
+                                console.log("data:", data_account);
+
+                                if (!data_account || !data_account.status) {
+                                    throw new Error("回傳格式錯誤");
+                                    return;
+                                }
+
+                                if (data_account.status === "ok") {
+                                    showModal("修改設定成功", () => {
+                                        console.log("使用者點擊 OK");
+                                        window.location.href = data_account.redirect;
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                } else {
+                                    showModal("使用者請求遭拒，請再試一次", () => {
+                                        console.log("使用者點擊 OK");
+                                    }, () => {
+                                        console.log("使用者點擊 Cancel");
+                                    });
+                                }
+                            }
+                            catch (err) {
+                                console.log("發生錯誤");
+                            }
                         }
                     }
 
@@ -1616,7 +1714,7 @@
                                             }
                                         } catch (pollErr) {
                                             clearInterval(intervalId);
-                                            showModal("輪詢過程出錯：" + pollErr.message, () => {
+                                            showModal("輪詢過程出錯：" + pollErr.message + " 請確認圖片是否完整上傳", () => {
                                                 console.log("使用者點擊 OK");
                                             }, () => {
                                                 console.log("使用者點擊 Cancel");
@@ -1678,7 +1776,7 @@
                             }
                         }
 
-                        openResultModal(add_modal, formData, true);
+                        openNextModal(add_modal, formData, result_modal);
 
                         const pollingInterval = 3000; // 每 3 秒查一次
                         const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
@@ -1722,7 +1820,7 @@
                                 }
                             } catch(pollErr) {
                                 clearInterval(intervalId);
-                                showModal("輪詢過程出錯：" + pollErr.message, () => {
+                                showModal("輪詢過程出錯：" + pollErr.message + " 請確認圖片是否完整上傳", () => {
                                     console.log("使用者點擊 OK");
                                 }, () => {
                                     console.log("使用者點擊 Cancel");
@@ -1772,7 +1870,7 @@
                             }
                         }
 
-                        openResultModal(result_modal, formData, false);
+                        openNextModal(result_modal, formData, null);
 
                         const pollingInterval = 3000; // 每 3 秒查一次
                         const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
@@ -1844,7 +1942,7 @@
 
                                         hideLoadingModal();
 
-                                        showModal("輪詢過程出錯：" + pollErr.message, () => {
+                                        showModal("輪詢過程出錯：" + pollErr.message + " 請確認圖片是否完整上傳", () => {
                                             console.log("使用者點擊 OK");
                                         }, () => {
                                             console.log("使用者點擊 Cancel");
@@ -1997,7 +2095,7 @@
                             }
                         }
 
-                        openResultModal(delete_modal, formData, true);
+                        openNextModal(delete_modal, formData, result_modal);
 
                         const pollingInterval = 3000; // 每 3 秒查一次
                         const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
@@ -2098,7 +2196,7 @@
                 });
             }
 
-            function openResultModal(current_modal, formData, next_result_page = false) {
+            function openNextModal(current_modal, formData, next_modal=null) {
 
                 const currentModal = bootstrap.Modal.getInstance(current_modal);
                 if (currentModal) currentModal.hide();
@@ -2107,18 +2205,18 @@
                 const maxRetries = 60; // 最多輪詢 60 次 (3 分鐘)
                 let attempts = 0;
 
-                const prev_modal = result_modal.querySelector("#btnGoBack");
+                const prev_modal = next_modal.querySelector("#btnGoBack");
                 if (prev_modal) {
                     
-                    if (next_result_page) {
+                    if (next_modal) {
                         setTimeout(() => {
-                        const resultModalEl = result_modal;
-                        const resultModal = new bootstrap.Modal(resultModalEl);
-                        resultModal.show();}, 400);
+                        const ModalEl = next_modal;
+                        const Modal = new bootstrap.Modal(ModalEl);
+                        Modal.show();}, 400);
                     }
 
                     prev_modal.addEventListener("click", () => {
-                        const currentModal = bootstrap.Modal.getInstance(result_modal);
+                        const currentModal = bootstrap.Modal.getInstance(next_modal);
                         if (currentModal) currentModal.hide();
 
                         setTimeout(() => {
@@ -2222,7 +2320,7 @@
 
                         const data_add6 = await res_add6.json();
 
-                        if (data_add6.message === "not found") {
+                        if (data_add6.message === "not exist" || data_add6.message == "not found") {
                             clearInterval(intervalId);
                             showModal(`沒有此病患的辨識結果資料 (id=${current_patient_id})`, () => {
                                 console.log("使用者點擊 OK");
@@ -2254,7 +2352,7 @@
                         }
                     } catch(pollErr) {
                         clearInterval(intervalId);
-                        showModal("輪詢過程出錯：" + pollErr.message, () => {
+                        showModal("輪詢過程出錯：" + pollErr.message, " 請確認圖片是否完整上傳", () => {
                             console.log("使用者點擊 OK");
                         }, () => {
                             console.log("使用者點擊 Cancel");

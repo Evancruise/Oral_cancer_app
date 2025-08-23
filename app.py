@@ -123,10 +123,11 @@ def init_db():
             create_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             name TEXT,
             username TEXT UNIQUE,
-            password BLOB,
+            password TEXT,
             priority INTEGER,
             status TEXT,
-            note TEXT
+            note TEXT,
+            unit TEXT
         )
     ''')
 
@@ -582,17 +583,20 @@ def retrieve_result(patient_id):
     rows = cursor.fetchone()
     conn.close()
 
-    print('rows:', dict(rows))
+    if rows:
+        print('rows:', dict(rows))
 
-    for i in range(1, 9):
-        result = rows[f"img{i}_result"]
-        if not result:
-            return jsonify({"message": "not found", "record_dict": None, "description": result_description})
-        record_dict[f"img{i}"] = result
+        for i in range(1, 9):
+            result = rows[f"img{i}_result"]
+            if not result:
+                return jsonify({"message": "not found", "record_dict": None, "description": result_description})
+            record_dict[f"img{i}"] = result
 
-    print("result_description:", result_description)
+        print("result_description:", result_description)
 
-    return jsonify({"message": "exist", "record_dict": record_dict, "description": result_description})
+        return jsonify({"message": "exist", "record_dict": record_dict, "description": result_description})
+    else:
+        return jsonify({"message": "not exist", "record_dict": None, "description": result_description})
 
 @app.route("/record/new/<record_id>", methods=["POST"])
 def new_record(record_id):
@@ -890,32 +894,16 @@ def discard_history():
 
     grouped = defaultdict(list)
     for row in rows:
-        dt_naive = datetime.datetime.strptime(row['timestamp'], "%Y-%m-%d %H:%M:%S")
-        dt_utc = dt_naive.replace(tzinfo=ZoneInfo("UTC"))
-        dt = dt_utc.astimezone(ZoneInfo(TIMEZONE))
-
-        datetime_str = dt.strftime("%Y-%m-%d")  # 精準到秒
-        weekday_str = dt.strftime("%A")
-
-        weekday_map = {
-            'Monday': '一',
-            'Tuesday': '二',
-            'Wednesday': '三',
-            'Thursday': '四',
-            'Friday': '五',
-            'Saturday': '六',
-            'Sunday': '日',
-        }
-
-        chinese_weekday = weekday_map.get(weekday_str, '')
-        date_display = f"{datetime_str}（{chinese_weekday}）"
+        start_date_display = datetime_convert(row['start_timestamp'])
+        last_date_display = datetime_convert(row['last_timestamp'])
 
         current_table = {
             'name': session['name'],
             'gender': row['gender'],
             'age': row['age'],
             'patient_id': row['patient_id'],
-            'time': row['timestamp'],  # 原始 timestamp 可用於排序
+            'time': start_date_display,  # 原始 timestamp 可用於排序
+            'last_edit_time': last_date_display,
             'notes': row['notes'],
             'icon': 'camera',
             'bg_class': '',
@@ -939,7 +927,7 @@ def discard_history():
 
         print("current_table:", current_table)
 
-        grouped[date_display].append(current_table)
+        grouped[last_date_display].append(current_table)
         patient_id_dict.append(row['patient_id'])
     
     if "user_id" not in session:
@@ -949,10 +937,49 @@ def discard_history():
 
     return render_template("liff_discard_records.html", grouped_records=dict(grouped), user_id=session["user_id"], all_patient_ids=patient_id_dict, priority=retrieve_priority(username))
 
+@app.route("/record/confirm_add_account", methods=["POST"])
+def confirm_add_account():
+    username = request.form.get("f_account")
+    name = request.form.get("f_name")
+    password = request.form.get("f_password")
+    unit = request.form.get("f_unit")
+    role = request.form.get("f_role")
+    status = request.form.get("f_status")
+    note = request.form.get("f_note")
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM users WHERE name=?", (name, ))
+    row = cursor.fetchone()
+
+    priority = -1
+    if role == "system manager":
+        priority = 1
+    elif role == "resource manager":
+        priority = 0
+    else:
+        priority = -1
+
+    if not row:
+        cursor.execute("""
+            INSERT INTO users (username, name, password, priority, status, note, unit) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (username, name, password, priority, status, note, unit,))
+    else:
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "failed"})
+    
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok", "redirect": url_for("all_account")})
+
 @app.route("/record/confirm_account", methods=["POST"])
 def confirm_account():
     username = request.form.get("f_account")
     name = request.form.get("f_name")
+    password = request.form.get("f_password")
     unit = request.form.get("f_unit")
     role = request.form.get("f_role")
     status = request.form.get("f_status")
@@ -975,8 +1002,8 @@ def confirm_account():
 
     if row:
         cursor.execute("""
-            UPDATE users SET username = ?, unit = ?, priority = ?, status = ?, note = ? WHERE name=?
-            """, (username, unit, priority, status, note, name,))
+            UPDATE users SET username = ?, password = ?, unit = ?, priority = ?, status = ?, note = ? WHERE name=?
+            """, (username, password, unit, priority, status, note, name,))
     else:
         conn.commit()
         conn.close()
@@ -1010,6 +1037,7 @@ def all_account():
         current_table = {
             "account": row['username'],
             "name": row['name'],
+            "password": row['password'],
             "unit": row["unit"],
             "role": role,
             "status": row["status"] if row["status"] else "deactivated",
@@ -1107,28 +1135,12 @@ def history():
     rows = cursor.fetchall()
 
     username = session["username"]
+    name = session["name"]
 
     grouped = defaultdict(list)
     for row in rows:
-        dt_naive = datetime.datetime.strptime(row['timestamp'], "%Y-%m-%d %H:%M:%S")
-        dt_utc = dt_naive.replace(tzinfo=ZoneInfo("UTC"))
-        dt = dt_utc.astimezone(ZoneInfo(TIMEZONE))
-
-        datetime_str = dt.strftime("%Y-%m-%d")  # 精準到秒
-        weekday_str = dt.strftime("%A")
-
-        weekday_map = {
-            'Monday': '一',
-            'Tuesday': '二',
-            'Wednesday': '三',
-            'Thursday': '四',
-            'Friday': '五',
-            'Saturday': '六',
-            'Sunday': '日',
-        }
-
-        chinese_weekday = weekday_map.get(weekday_str, '')
-        date_display = f"{datetime_str}（{chinese_weekday}）"
+        start_date_display = datetime_convert(row['start_timestamp'])
+        last_date_display = datetime_convert(row['last_timestamp'])
 
         print("row[\"img1\"]:", row['img1'])
         print("row[\"img2\"]:", row['img2'])
@@ -1145,7 +1157,8 @@ def history():
             'gender': row['gender'],
             'age': row['age'],
             'patient_id': row['patient_id'],
-            'time': row['timestamp'],  # 原始 timestamp 可用於排序
+            'time': start_date_display,  # 原始 timestamp 可用於排序
+            'last_edit_time': last_date_display,
             'notes': row['notes'],
             'icon': 'camera',
             'bg_class': '',
@@ -1169,7 +1182,7 @@ def history():
 
         print("current_table:", current_table)
 
-        grouped[date_display].append(current_table)
+        grouped[last_date_display].append(current_table)
         patient_id_dict.append(row['patient_id'])
     
     if "user_id" not in session:
@@ -1185,7 +1198,7 @@ def history():
     conn.commit()
     conn.close()
 
-    return render_template("liff_records.html", grouped_records=dict(grouped), new_patient_id=new_patient_id, user_id=session["user_id"], all_patient_ids=patient_id_dict, priority=retrieve_priority(username))
+    return render_template("liff_records.html", grouped_records=dict(grouped), new_patient_id=new_patient_id, user_id=session["user_id"], all_patient_ids=patient_id_dict, priority=retrieve_priority(username), name=name)
 
 qr_sessions = {}
 
@@ -1328,13 +1341,14 @@ def login_redirect():
         session["token"] = token
         session["username"] = username
         session["password"] = password
+        session["user_id"] = new_session_id
 
+        '''
         if password == PASSWORD:
             priority = 0
         elif password == PASSWORD_ROOT:
             priority = 1
 
-        '''
         with sqlite3.connect(DB_PATH, timeout=30, isolation_level=None) as conn:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("PRAGMA busy_timeout=10000;")
@@ -1349,6 +1363,7 @@ def login_redirect():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
+        '''
         cursor.execute("""
             SELECT * FROM users WHERE name=?               
         """, (name,))
@@ -1365,15 +1380,33 @@ def login_redirect():
             cursor.execute("""
                 UPDATE users SET username = ?, priority = ?, qr_session_id = ? WHERE name=?
             """, (username, priority, session["user_id"], name,))
+        '''
+        cursor.execute("""
+            UPDATE users SET qr_session_id = ? WHERE name=?
+        """, (session["user_id"], name,))
         
         session["username"] = username
         session["name"] = name
         conn.commit()
         conn.close()
 
-        return jsonify({"status": "success", "redirect": url_for("top_page")})
+        return jsonify({"status": "success", "message": "none", "redirect": url_for("top_page")})
     
-    return jsonify({"status": "failed", "redirect": url_for("login_page")})
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM users WHERE username=? AND name=?", (username, name, ))
+        row = cursor.fetchone()
+
+        if not row:
+            return jsonify({"status": "failed", "message": "user not found", "redirect": url_for("login_page")})
+        else:
+            if password == row["password"]:
+                return jsonify({"status": "success", "message": "none", "redirect": url_for("top_page")})
+            else:
+                return jsonify({"status": "failed", "message": "login failed", "redirect": url_for("login_page")})
 
 @app.route("/")
 def index():
@@ -1403,7 +1436,7 @@ def retrieve_priority(username):
     conn.row_factory = sqlite3.Row
     cursor = conn.cursor()
 
-    cursor.execute("SELECT * FROM users WHERE name=?", (username, ))
+    cursor.execute("SELECT * FROM users WHERE username=?", (username, ))
     row = cursor.fetchone()
     
     if row is None:

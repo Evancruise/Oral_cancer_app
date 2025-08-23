@@ -146,13 +146,23 @@
 
                     if (data1.status == "failed") {
                         
-                        showModal("登入失敗，請再試一次", () => {
-                            window.location.href = data1.redirect;
-                            console.log("使用者點擊 OK");
-                        }, () => {
-                            window.location.href = data1.redirect;
-                            console.log("使用者點擊 Cancel");
-                        });
+                        if (data1.message == "login failed") {
+                            showModal("登入失敗，請再試一次", () => {
+                                window.location.href = data1.redirect;
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                window.location.href = data1.redirect;
+                                console.log("使用者點擊 Cancel");
+                            });
+                        } else if (data1.message == "user not found") {
+                            showModal("登入無效，請聯絡系統資源管理者授權，再嘗試登入", () => {
+                                window.location.href = data1.redirect;
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                window.location.href = data1.redirect;
+                                console.log("使用者點擊 Cancel");
+                            });
+                        }
 
                     } else if (data1.status == "success") {
                         window.location.href = data1.redirect;

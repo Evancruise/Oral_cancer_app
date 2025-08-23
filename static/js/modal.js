@@ -43,6 +43,9 @@ function showPhotoModal(code, scope_name) {
     const modal = bootstrap.Modal.getOrCreateInstance(photo_modal);
     modal.show();
 
+    document.getElementById("video").style.display = "flex";
+    document.getElementById("result_img").src = "";
+
     // 啟動攝影機（只打開一次也可以，視需求）
     navigator.mediaDevices.getUserMedia({ video: true })
         .then(stream => { document.getElementById("video").srcObject = stream; });
