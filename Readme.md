@@ -240,11 +240,23 @@ docker push <USERNAME>/rag-ai-api:latest
 ```
 
 ### [B] GCP Artifact Registry
-> 建議改用 Artifact Registry（較新），路徑格式：  
+# 建立 Artifact Registry (Docker repository)
+```bash
+gcloud artifacts repositories create flask-app-repo \
+    --repository-format=docker \
+    --location=asia-east1 \
+    --description="Docker repo for flask app"
+```
+
+# 確認建立成功
+```bash
+gcloud artifacts repositories list --location=asia-east1
+```
+>  其路徑格式如下：  
 > `asia-east1-docker.pkg.dev/<PROJECT_ID>/<REPO>/<IMAGE>:<TAG>`
 
 ```bash
-# 設定 Artifact Registry 認證
+# 設定 Artifact Registry 認證 (這樣 docker build/push 才會生效)
 gcloud auth configure-docker asia-east1-docker.pkg.dev
 
 # 重新標記
@@ -363,7 +375,53 @@ GCP_SA_KEY → 你的 GCP service account JSON 金鑰內容（整份貼進去）
 # [1] 在左側選單 → 找到 IAM & Admin → Service Accounts
 # [2] 點 + Create Service Account
 #   Name: github-actions-deployer（名字可自訂）
-#   ID 會自動生成，記住這個（格式會像 github-actions-deployer@your-project-id.iam.gserviceaccount.com）
+#   ID 會自動生成，記住這個（格式會像 github-actions-deployer@your-project-id.iam.gserviceaccount.com, i.e., github-actions-deployer@oral-cancer-ai.iam.gserviceaccount.com）
+
+# [2-1] 用指令建立 Service Account
+```bash
+gcloud iam service-accounts create github-actions-deployer \
+ --display-name="GitHub Actions Deployer" \
+ --project=oral-cancer-ai
+```
+
+'''bash
+# 輸出範例
+Updated IAM policy for project [oral-cancer-ai].
+bindings:
+- members:
+  - serviceAccount:service-865598980136@gcp-sa-aiplatform.iam.gserviceaccount.com
+  role: roles/aiplatform.serviceAgent
+- members:
+  - serviceAccount:github-actions-deployer@oral-cancer-ai.iam.gserviceaccount.com
+  role: roles/artifactregistry.writer
+- members:
+  - serviceAccount:service-865598980136@containerregistry.iam.gserviceaccount.com
+  role: roles/containerregistry.ServiceAgent
+- members:
+  - serviceAccount:865598980136-compute@developer.gserviceaccount.com
+  role: roles/editor
+- members:
+  - serviceAccount:github-actions-deployer@oral-cancer-ai.iam.gserviceaccount.com
+  role: roles/iam.serviceAccountUser
+- members:
+  - user:evan1632885@gmail.com
+  role: roles/owner
+- members:
+  - serviceAccount:service-865598980136@gcp-sa-pubsub.iam.gserviceaccount.com
+  role: roles/pubsub.serviceAgent
+- members:
+  - serviceAccount:github-actions-deployer@oral-cancer-ai.iam.gserviceaccount.com
+  role: roles/run.admin
+- members:
+  - serviceAccount:service-865598980136@serverless-robot-prod.iam.gserviceaccount.com
+  role: roles/run.serviceAgent
+etag: BwY9GCsi4f4=
+version: 1
+'''
+
+# 確認建立成功
+# gcloud iam service-accounts list --project oral-cancer-ai --format="table(displayName,email)"
+
 # [3] 授權角色 (Role)
 # [4] 產生 JSON Key
 #   建立完成 Service Account 後，在列表點選它 → Keys 分頁
@@ -373,8 +431,26 @@ GCP_SA_KEY → 你的 GCP service account JSON 金鑰內容（整份貼進去）
 #   到 GitHub repo → Settings → Secrets and variables → Actions → New repository secret
 #     Name: GCP_SA_KEY
 #     Value: 貼上剛剛的 JSON
+
+# [6] 授權訪問權限
+# * 利用自己帳號
+```bash
+gcloud auth login
+```
+# * 利用 Service Account - 用金鑰登入 GCP
+```bash
+gcloud auth activate-service-account \
+ github-actions-deployer@oral-cancer-ai.iam.gserviceaccount.com \
+ --key-file=key.json \
+ --project=oral-cancer-ai
 ```
 
+# [7] 設定 Artifact Registry 認證 (這樣 docker build/push 才會生效)
+```bash
+gcloud auth configure-docker asia-east1-docker.pkg.dev
+```
+
+```
 `.github/workflows/deploy.yml`
 ```yaml
 name: CI/CD
