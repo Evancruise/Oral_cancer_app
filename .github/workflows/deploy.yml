@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main   # 當 main branch 有 push 時觸發
+      - debug
+      
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
