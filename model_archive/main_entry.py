@@ -1,18 +1,25 @@
 from torch.utils.data import DataLoader
 import torch
 import torch.nn as nn
-from model_archive.model import DINOv2TokenSegmentation, YOLOv9_M4, MaskRCNNSwin, EMA, UNETR_MoE_CLIP_RCNN
+# from model_archive.model import DINOv2TokenSegmentation, YOLOv9_M4, MaskRCNNSwin, EMA, UNETR_MoE_CLIP_RCNN, CascadeRCNN
+from model_archive.model import DINOv2TokenSegmentation, YOLOv9_M4, MaskRCNNSwin, EMA, CascadeRCNN
 from model_archive.dataset import SegmentationDataset, YoloDetectionDataset, SegmentationDataset_ema, MultiModalSegDataset, MultiModalSegCascadeDataset
 from model_archive.train_val import (train_seg, evaluate_seg, test_seg, inference_seg, \
                        train_yolo, evaluate_yolo, test_yolo, inference_yolo, \
                        train_maskrcnn_ema, evaluate_maskrcnn_ema, inference_maskrcnn_ema, \
-                       train_segmentation_model_moe, validate_segmentation_model_moe, evaluate_segmentation_model_moe, inference_segmentation_mode_moe)
+                       train_segmentation_model_moe, validate_segmentation_model_moe, evaluate_segmentation_model_moe, inference_segmentation_mode_moe, \
+                       train_cascade_resnet, evaluate_cascade_resnet, test_cascade_resnet, inference_cascade_resnet)
 from model_archive.loss import Mask2FormerLoss, CLIP_MultiTaskLoss
-from model_archive.utils_func import collate_fn, collate_fn_yolo, collate_fn_moe, model_info, load_checkpoint, optimizer_setup
+from model_archive.utils_func import collate_fn, collate_fn_yolo, collate_fn_moe, collate_fn_cascade, model_info, load_checkpoint, optimizer_setup
 from model_archive.config import Config
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR, MultiStepLR, ExponentialLR, ReduceLROnPlateau, OneCycleLR
 from torch.utils.tensorboard import SummaryWriter
 import os
+from model_archive.rag_library import RetrievalService, Generator
+
+# 初始化服務
+retriever = RetrievalService()
+generator = Generator()
 
 def model_trainvaltest_process(optimizer_type="adam",
                                lr=1e-4,
@@ -27,7 +34,8 @@ def model_trainvaltest_process(optimizer_type="adam",
                                save_dir=None,
                                progress_path=None,
                                patient_id=None,
-                               db_path=None):
+                               db_path=None,
+                               question=None):
 
     all_config = Config()
 
@@ -84,6 +92,8 @@ def model_trainvaltest_process(optimizer_type="adam",
     else:
         writer = None
 
+    seg_description = []
+
     if ml == "dinov2":
         model = DINOv2TokenSegmentation(num_classes=num_classes).to(device)  # 假設 3 類
         model = model.to(device).half() if device.type == "cuda" else model.to(device)
@@ -114,28 +124,13 @@ def model_trainvaltest_process(optimizer_type="adam",
             # Training loop
             for epoch in range(epochs):
                 print(f"Epoch {epoch+1}")
-                loss, training_status = train_seg(model, epoch, epochs, train_dataloader, optimizer, scheduler, loss_fn, device, progress_path)
-
-                if training_status["cancel"] == True:
-                    break
+                loss = train_seg(model, epoch, train_dataloader, optimizer, scheduler, loss_fn, device, progress_path)
                 
-                evaluate_seg(model, val_dataloader, loss_fn, device)
-                torch.save({
-                    'epoch': epoch+1,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'loss': loss,
-                }, f"{model_dir}/dinov2_token_segmentation_epoch{epoch+1}.pth")
+                metric = evaluate_seg(model, val_dataloader, loss_fn, device, num_classes)
+                torch.save(model.state_dict(), f"{model_dir}/dinov2_token_segmentation_epoch{epoch+1}.pth")
 
-            torch.save({
-                'epoch': epochs,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': loss,
-            }, f"{model_dir}/dinov2_token_segmentation_final.pth")
-            
+            torch.save(model.state_dict(), f"{model_dir}/dinov2_token_segmentation_final.pth")
         else:
-            
             if mode == "continue_train":
 
                 train_dataset = SegmentationDataset(img_size, train_image_paths, train_ann_paths, image_transform=image_transform_dinov2, mask_transform=mask_transform_dinov2)
@@ -148,36 +143,23 @@ def model_trainvaltest_process(optimizer_type="adam",
                 optimizer, scheduler = optimizer_setup(optimizer_type, scheduler_mode, trainable_parameters, steps_per_epoch, lr, weight_decay, epochs, train_dataloader)
 
                 checkpoint = torch.load(f"{model_dir}/dinov2_token_segmentation_final.pth")
-                model.load_state_dict(checkpoint['model_state_dict'])
+                model.load_state_dict(checkpoint)
                 start_epoch = checkpoint['epoch']
                 epochs = start_epoch + epochs
                 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])    
 
                 for epoch in range(start_epoch+1, epochs):
                     print(f"Epoch {epoch+1}")
-                    loss, training_status = train_seg(model, epoch, epochs, train_dataloader, optimizer, loss_fn, device, progress_path)
+                    loss = train_seg(model, epoch, train_dataloader, optimizer, loss_fn, device, progress_path)
 
-                    if training_status["cancel"] == True:
-                        break
+                    metric = evaluate_seg(model, val_dataloader, loss_fn, device, num_classes)
+                    torch.save(model.state_dict(), f"{model_dir}/dinov2_token_segmentation_{epoch+1}.pth")
 
-                    evaluate_seg(model, val_dataloader, loss_fn, device)
-                    torch.save({
-                        'epoch': epoch+1,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'loss': loss,
-                    }, f"{model_dir}/dinov2_token_segmentation_{epoch+1}.pth")
-
-                torch.save({
-                    'epoch': epochs,
-                    'model_state_dict': model.state_dict(),
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'loss': loss,
-                }, f"{model_dir}/dinov2_token_segmentation_final.pth")
+                torch.save(model.state_dict(), f"{model_dir}/dinov2_token_segmentation_final.pth")
                 
             elif mode == "test":
-                checkpoint = torch.load(f"{model_dir}/dinov2_token_segmentation_final.pth")
-                model.load_state_dict(checkpoint['model_state_dict'])
+                checkpoint = torch.load(f"{model_dir}/dinov2_token_segmentation_final.pth", map_location="cpu")
+                model.load_state_dict(checkpoint)
                 
                 test_dataset = SegmentationDataset(img_size, test_image_paths, test_ann_paths, image_transform=image_transform_dinov2, mask_transform=mask_transform_dinov2)
                 test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn)
@@ -185,13 +167,13 @@ def model_trainvaltest_process(optimizer_type="adam",
                 test_seg(model, test_loader, device, save_dir=save_dir)
 
             elif mode == "inference":
-                checkpoint = torch.load(f"{model_dir}/dinov2_token_segmentation_final.pth")
-                model.load_state_dict(checkpoint['model_state_dict'])
+                checkpoint = torch.load(f"{model_dir}/dinov2_token_segmentation_epoch1.pth", map_location="cpu")
+                model.load_state_dict(checkpoint)
 
                 inference_dataset = SegmentationDataset(img_size, inference_image_paths, None, image_transform=image_transform_dinov2, mask_transform=None)
                 inference_loader = DataLoader(inference_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn)
                 
-                inference_seg(model, inference_loader, device, input_inference_path=input_inference_path, save_dir=save_dir, progress_path=progress_path, patient_id=patient_id, db_path=db_path)
+                seg_description = inference_seg(model, inference_loader, device, input_inference_path=input_inference_path, save_dir=save_dir, progress_path=progress_path, patient_id=patient_id, db_path=db_path)
 
     elif ml == "yolov9":
 
@@ -229,17 +211,9 @@ def model_trainvaltest_process(optimizer_type="adam",
 
                 metrics = evaluate_yolo(model, val_dataloader, device, num_classes)
 
-                torch.save({
-                        'epoch': epoch+1,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict()
-                    }, f"{model_dir}/yolov9_m4_detection_{epoch+1}.pth")
+                torch.save(model.state_dict(), f"{model_dir}/yolov9_m4_detection_{epoch+1}.pth")
 
-            torch.save({
-                'epoch': epochs,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict()
-            }, f"{model_dir}/yolov9_m4_detection_final.pth")
+            torch.save(model.state_dict(), f"{model_dir}/yolov9_m4_detection_final.pth")
 
         elif mode == "continue_train":
             
@@ -252,8 +226,7 @@ def model_trainvaltest_process(optimizer_type="adam",
             optimizer, scheduler = optimizer_setup(optimizer_type, scheduler_mode, trainable_parameters, steps_per_epoch, lr, weight_decay, epochs, train_dataloader)
 
             checkpoint = torch.load(f"{model_dir}/yolov9_m4_detection_final.pth")
-            model.load_state_dict(checkpoint['model_state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            model.load_state_dict(checkpoint)
 
             start_epoch = checkpoint['epoch']
             epochs = start_epoch + epochs
@@ -267,16 +240,12 @@ def model_trainvaltest_process(optimizer_type="adam",
 
                 metrics = evaluate_yolo(model, val_dataloader, device, num_classes)
 
-                torch.save({
-                        'epoch': epoch+1,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict()
-                    }, f"{model_dir}/yolov9_m4_detection_{epoch+1}.pth")
+                torch.save(model.state_dict(), f"{model_dir}/yolov9_m4_detection_{epoch+1}.pth")
         
         elif mode == "test":
 
             checkpoint = torch.load(f"{model_dir}/yolov9_m4_detection_final.pth")
-            model.load_state_dict(checkpoint['model_state_dict'])
+            model.load_state_dict(checkpoint)
 
             test_dataset = YoloDetectionDataset(test_image_paths, test_ann_paths, transform)
             test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn_yolo)
@@ -286,7 +255,7 @@ def model_trainvaltest_process(optimizer_type="adam",
         elif mode == "inference":
 
             checkpoint = torch.load(f"{model_dir}/yolov9_m4_detection_final.pth")
-            model.load_state_dict(checkpoint['model_state_dict'])
+            model.load_state_dict(checkpoint)
 
             inference_dataset = YoloDetectionDataset(test_image_paths, test_ann_paths, transform)
             inference_dataloader = DataLoader(inference_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn_yolo)
@@ -330,19 +299,9 @@ def model_trainvaltest_process(optimizer_type="adam",
                 ema_model = ema.ema_model
                 val_loss = evaluate_maskrcnn_ema(ema_model, val_dataloader, device, epoch, num_classes, class_names, class_color_map, save_dir=save_dir, writer=writer)
                 
-                torch.save({
-                        'epoch': epoch+1,
-                        'model_state_dict': model.state_dict(),
-                        'optimizer_state_dict': optimizer.state_dict(),
-                        'loss': val_loss
-                    }, f"{model_dir}/mask2former_segmentation_epoch{epoch+1}.pth")
+                torch.save(model.state_dict(), f"{model_dir}/mask2former_segmentation_epoch{epoch+1}.pth")
             
-            torch.save({
-                'epoch': epochs,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'loss': val_loss
-            }, f"{model_dir}/mask2former_segmentation_final.pth")
+            torch.save(model.state_dict(), f"{model_dir}/mask2former_segmentation_final.pth")
             
         elif mode == "continue_train":
 
@@ -355,8 +314,8 @@ def model_trainvaltest_process(optimizer_type="adam",
             optimizer, scheduler = optimizer_setup(optimizer_type, scheduler_mode, trainable_parameters, steps_per_epoch, lr, weight_decay, epochs, train_dataloader)
 
             checkpoint = torch.load(f"{model_dir}/mask2former_segmentation_final.pth")
-            model.load_state_dict(checkpoint['model_state_dict'])
-            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            model.load_state_dict(checkpoint)
+            # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
             start_epoch = checkpoint['epoch']
             epochs = start_epoch + epochs
@@ -381,147 +340,12 @@ def model_trainvaltest_process(optimizer_type="adam",
         elif mode == "test":
 
             checkpoint = torch.load(f"{model_dir}/mask2former_segmentation_final.pth")
-            model.load_state_dict(checkpoint['model_state_dict'])
+            model.load_state_dict(checkpoint)
 
             test_dataset = SegmentationDataset_ema(img_size, test_image_paths, test_ann_paths, image_transform=image_transform_ema, mask_transform=mask_transform_ema, box_transform=transform)
             test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn)
             
             inference_maskrcnn_ema(model, test_dataloader, device, class_names=class_names, class_color_map=class_color_map, visualize=False, save_dir=save_dir, conf_thresh=0.5, patient_id=patient_id, db_path=db_path)
-
-    elif ml == "unetr_moe":
-
-        model = UNETR_MoE_CLIP_RCNN(
-            in_channels=num_classes,
-            out_channels=num_classes+1,           # 分類數量
-            img_size=resize_img_size,
-            feature_size=16,
-            hidden_size=768,
-            num_layers=12,
-            roi_output_size=(7,7),
-            num_heads=12              # 自動算 hidden_size，會是 num_patches * base_dim 向上取整
-        )
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-        '''
-        if model_tuning_enable == True:
-            # 選擇只訓練 prompt 與 decoder 等模組的參數
-            trainable_parameters = list(model.prompt.parameters()) + \
-                            list(model.query_embed.parameters()) + \
-                            list(model.transformer_decoder.parameters()) + \
-                            list(model.class_head.parameters()) + \
-                            list(model.mask_embed_head.parameters())
-
-            model_info(model, trainable_parameters)
-        else:
-            trainable_parameters = model.parameters()
-        '''
-        trainable_parameters = model.parameters()
-
-        criterion = CLIP_MultiTaskLoss()
-
-        if mode == "train":
-            # Training loop
-            # best_dice = 0.0
-
-            #with mlflow.start_run() as run:
-            #    run_id = run.info.run_id
-            #    print("Run ID:", run_id)
-
-            train_dataset = MultiModalSegDataset(img_size, train_image_paths, train_ann_paths, image_transform=image_transform_moe, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
-            val_dataset = MultiModalSegDataset(img_size, val_image_paths, val_ann_paths, image_transform=image_transform_moe, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
-            
-            train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn_moe)
-            val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn_moe)
-
-            steps_per_epoch = len(train_dataloader)
-            optimizer, scheduler = optimizer_setup(optimizer_type, scheduler_mode, trainable_parameters, steps_per_epoch, lr, weight_decay, epochs, train_dataloader)
-
-            for epoch in range(epochs):
-                train_loss, training_status = train_segmentation_model_moe(model, epoch, epochs, train_dataloader, optimizer, criterion, scheduler, device, writer=writer, progress_path=progress_path)
-                if training_status["cancel"] == True:
-                    break
-
-                val_dict = validate_segmentation_model_moe(model, val_dataloader, criterion, scheduler, device, epoch, writer=writer)
-
-                val_loss = val_dict["val_loss"]
-                acc = val_dict["val_acc"]
-                precision = val_dict["val_precision"]
-                iou = val_dict["val_iou"]
-
-                #mlflow.log_metric("accuracy", acc)
-                #mlflow.log_metric("precision", precision)
-                #mlflow.log_metric("iou", iou)
-                #mlflow.log_metric("train_loss", train_loss)
-                #mlflow.log_metric("val_loss", val_loss)
-                #mlflow.sklearn.log_model(model, "unetr_moe_model")
-                torch.save(model.state_dict(), f"{model_dir}/unetr_moe_model_epoch{epoch+1}.pth")
-
-            # mlflow.register_model(model_uri=f"runs:/{run_id}/unetr_moe_model", name="UNETR_MOE_Model")
-            torch.save(model.state_dict(), f"{model_dir}/unetr_moe_model_final.pth")
-
-        elif mode == "continue_train":
-            
-            train_dataset = MultiModalSegDataset(img_size, train_image_paths, train_ann_paths, image_transform=image_transform_moe, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
-            val_dataset = MultiModalSegDataset(img_size, val_image_paths, val_ann_paths, image_transform=image_transform_moe, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
-            
-            train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn_moe)
-            val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn_moe)
-
-            steps_per_epoch = len(train_dataloader)
-            optimizer, scheduler = optimizer_setup(optimizer_type, scheduler_mode, trainable_parameters, steps_per_epoch, lr, weight_decay, epochs, train_dataloader)
-
-            checkpoint = load_checkpoint(model, optimizer, f"{model_dir}/unetr_moe_model_final.pth", device)
-            epochs = checkpoint['epoch'] + epochs
-
-            #with mlflow.start_run() as run:
-            #    run_id = run.info.run_id
-            #    print("Run ID:", run_id)
-
-            for epoch in range(start_epoch, epochs):
-                train_loss, training_status = train_segmentation_model_moe(model, epoch, epochs, train_dataloader, optimizer, criterion, device, epoch, print_every=10, writer=writer, progress_path=progress_path)
-                if training_status["cancel"] == True:
-                    break
-                val_dict = validate_segmentation_model_moe(model, val_dataloader, criterion, device, epoch, writer=writer)
-
-                val_loss = val_dict["val_loss"]
-                acc = val_dict["val_acc"]
-                precision = val_dict["val_precision"]
-                iou = val_dict["val_iou"]
-
-                #mlflow.log_metric("accuracy", acc)
-                #mlflow.log_metric("precision", precision)
-                #mlflow.log_metric("iou", iou)
-                #mlflow.log_metric("train_loss", train_loss)
-                #mlflow.log_metric("val_loss", val_loss)
-                #mlflow.sklearn.log_model(model, "model")
-                torch.save(model.state_dict(), f"{model_dir}/unetr_moe_model_epoch{epoch+1}.pth")
-
-                #mlflow.register_model(model_uri=f"runs:/{run_id}/unetr_moe_model", name="UNETR_MOE_Model")
-            
-            torch.save(model.state_dict(), f"{model_dir}/unetr_moe_model_final.pth")
-
-        elif mode == "test":
-            
-            test_dataset = MultiModalSegDataset(img_size, test_image_paths, test_ann_paths, image_transform=image_transform_moe, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
-            test_dataloader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn_moe)
-
-            model.load_state_dict(torch.load(f"{model_dir}/unetr_moe_model_final.pth"))
-            # model = mlflow.pytorch.load_model(f"runs:/{run_id}/unetr_moe_model")
-            # checkpoint = load_checkpoint(model, optimizer, f"{model_dir}/unetr_moe_best_model_epoch{start_epoch}.pth", device)
-            evaluate_segmentation_model_moe(model, test_dataloader, criterion, device, num_classes=num_classes+1, class_names=class_names, visualize_cm=False)
-        
-        elif mode == "inference":
-            
-            if inference_image_paths:
-                inference_dataset = MultiModalSegDataset(img_size, inference_image_paths, ann_paths=None, image_transform=image_transform_moe, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
-                inference_dataloader = DataLoader(inference_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn_moe)
-            else:
-                exit(-1)
-
-            model.load_state_dict(torch.load(f"{model_dir}/unetr_moe_model_final.pth"))
-            # model = mlflow.pytorch.load_model(f"runs:/{run_id}/unetr_moe_model")
-            # checkpoint = load_checkpoint(model, optimizer, f"{model_dir}/unetr_moe_best_model_epoch{start_epoch}.pth", device)
-            inference_segmentation_mode_moe(model, inference_dataloader, device, class_color_map, class_names=class_names, save_dir=save_dir, patient_id=patient_id, db_path=db_path)
 
     elif ml == "cascade_resnet":
 
@@ -614,7 +438,26 @@ def model_trainvaltest_process(optimizer_type="adam",
             inference_dataset = MultiModalSegCascadeDataset(img_size, val_image_paths, val_ann_paths, image_transform=image_transform_cascade, resize_img_size=resize_img_size, label_map=index_to_classes_dict)
             inference_dataloader = DataLoader(inference_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn_cascade)
 
-            inference_cascade_resnet(model, inference_dataloader, class_names, device)
+            seg_description = inference_cascade_resnet(model, inference_dataloader, class_names, device)
+
+    # RAG 檢索
+    if question:
+        contexts = retriever.retrieve(question, top_k=3)
+        # LLM Prompt
+        prompt = (
+            f"Patient image analysis:\n{seg_description}\n\n"
+            f"Question: {question}\n\n"
+            "Use the following medical references:\n" +
+            "\n".join([f"- {c['text']} ({c['source']})" for c in contexts])
+        )
+
+        answer = generator.generate(prompt, contexts)
+
+    return {
+        "segmentation": seg_description,
+        "answer": answer,
+        "citations": [{"source": c["source"], "score": c["score"]} for c in contexts]
+    }
 
 if __name__ == "__main__":
 

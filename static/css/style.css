@@ -344,6 +344,16 @@ button {
     background: linear-gradient(to right, #dee2e6, #ced4da);
 }
 
+.title{
+    line-height:1.1
+}
+.title h1{
+    margin:0; font-size:26px; letter-spacing:.5px; color:#1686c1; font-weight:800;
+}
+.title small{
+    display:block; color:#4ea7cf; margin-top:4px; font-weight:600;
+}
+
 .toggle-title {
     margin: 0;
     font-weight: 600;

@@ -1,0 +1,476 @@
+<!-- templates/liff_account_manage.html -->
+{% extends "liff_base.html" %}
+
+{% block content %}
+<div class="header">
+    <div class="logo"></div>
+    <div class="title">
+      <h1>醫快拍</h1>
+      <small>病歷影像記錄系統</small>
+    </div>
+</div>
+
+<style>
+  :root{
+    --bg: #ccecf9;
+    --panel: #ffffff;
+    --panel-dark:#f3fbff;
+    --brand:#1596d4;
+    --brand-dark:#0f79ab;
+    --text:#223244;
+    --muted:#6b7b8a;
+    --border:#d4e3ee;
+    --head:#0b6d98;
+    --head-t:#fff;
+    --row:#f8fbfe;
+    --ok:#10b981;
+    --warn:#f59e0b;
+    --danger:#ef4444;
+    --blue:#338fd3;
+    --green:#38b000;
+    --red:#d64550;
+    --gray:#eaf2f8;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background: radial-gradient(ellipse at top,#d9f3ff 0%,var(--bg) 60%) fixed;
+    font-family:"Segoe UI","Microsoft JhengHei",system-ui,-apple-system,sans-serif;
+    color:var(--text);
+  }
+
+  /* header */
+  .topbar{
+    max-width:1100px; margin:24px auto 8px; padding:16px 20px;
+    display:flex; align-items:center; gap:14px;
+    border-radius:18px; background:linear-gradient(180deg,#e9f8ff,#d7f0ff);
+    box-shadow:0 6px 18px rgba(20,80,120,.12);
+    position:relative;
+  }
+  .logo{ width:64px;height:64px;border-radius:16px;background:#fff;display:grid;place-items:center; box-shadow:inset 0 0 0 2px #e5f4ff; }
+  .logo::before{ content:"🅗"; font-size:30px; color:#0ea5e9; }
+  .title h1{ margin:0; font-size:26px; color:#1686c1; font-weight:800; letter-spacing:.5px; }
+  .title small{ display:block; color:#4ea7cf; margin-top:4px; font-weight:600; }
+  .hi{
+    position:absolute; right:18px; top:14px; color:#2b6f93; font-weight:700;
+  }
+
+  /* action bar */
+  .card{ max-width:1100px; margin:0 auto 28px; background:var(--panel); border-radius:18px; box-shadow:0 10px 28px rgba(15,40,70,.10); overflow:hidden; }
+  .bar{
+    display:flex; justify-content:space-between; align-items:center; gap:12px;
+    padding:10px; background:var(--panel-dark); border-bottom:1px solid var(--border);
+  }
+  .btn{ border:0; padding:8px 12px; border-radius:10px; font-weight:700; cursor:pointer; transition:.15s ease; }
+  .btn:active{ transform:translateY(1px) }
+  .btn-chip{ background:#fff; border:1px solid var(--border); color:#275a74; }
+  .btn-green{ background:#e8fbef; color:#137a55; }
+  .btn-red{ background:#ffe8ea; color:#a92c37; }
+  .btn-blue{ background:#e7f3ff; color:#0f6fb1; }
+  .btn .i{ margin-right:6px }
+  .group{ display:flex; gap:8px; align-items:center; }
+
+  /* table */
+  .table-wrap{ padding:10px 14px 14px; }
+  table{ width:100%; border-collapse:collapse; font-size:14px; }
+  thead th{ background:var(--head); color:var(--head-t); padding:10px 8px; text-align:left; font-weight:800; }
+  tbody td{ padding:10px 8px; border-bottom:1px solid #eef5fb; }
+  tbody tr:nth-child(odd){ background:var(--row); }
+  tbody tr:hover{ background:#eef9ff; }
+  .badge{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; }
+  .badge-ok{ background:#e7fbf4; color:#11795d; }
+  .badge-off{ background:#eef2f7; color:#5b6b7a; }
+  .role{ font-weight:700; color:#3c7aa3; }
+
+  /* pagination */
+  .pagination{ display:flex; gap:6px; justify-content:center; align-items:center; padding:6px 0 6px; }
+  .pager{ width:32px;height:32px; display:grid; place-items:center; border-radius:8px; border:1px solid var(--border); background:#fff; color:#156c9d; cursor:pointer; transition:.15s ease; }
+  .pager.active{ background:var(--brand); color:#fff; border-color:transparent; font-weight:800; }
+  .pager:hover{ transform:translateY(-1px) }
+
+  /* footer */
+  .footer{ text-align:center; color:#6aa8c8; font-size:13px; padding:8px 0 28px; }
+
+  /* responsive */
+  @media (max-width:880px){
+    .bar{ flex-wrap:wrap; }
+    .group:last-child{ width:100%; justify-content:flex-start; }
+    thead{ display:none; }
+    table, tbody, tr, td{ display:block; width:100%; }
+    tbody tr{ border:1px solid var(--border); border-radius:12px; margin-bottom:10px; padding:6px 6px; }
+    tbody td{ border:0; padding:6px 6px; }
+    tbody td::before{ content:attr(data-th) "："; font-weight:700; color:#466a84; margin-right:6px; }
+  }
+
+  /* ===== Modal 基本樣式（僅作用於 #curAccountModal） ===== */
+#curAccountModal .modal-dialog{
+  max-width: 720px;
+}
+
+#curAccountModal .modal-content{
+  border: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(15,40,70,.25);
+  background: #fff;
+}
+
+/* 若 form 有用 .card，避免出現雙層卡片外觀 */
+#curAccountModal #account_form.card{
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* 標頭與標題 */
+#curAccountModal .custom-modal-header{
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #e9f8ff 0%, #d7f0ff 100%);
+  border-bottom: 1px solid #d4e3ee;
+}
+
+#curAccountModal .modal-title{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #1686c1;
+  font-weight: 800;
+  letter-spacing: .2px;
+}
+
+/* 標題淡入動態（Font Awesome 的 fa-beat 會照常運作，這是額外的整體標題進場） */
+@keyframes titleFloatIn{
+  from{ opacity: 0; transform: translateY(6px); }
+  to{   opacity: 1; transform: translateY(0); }
+}
+
+#curAccountModal .animated-title{
+  animation: titleFloatIn .35s ease both;
+}
+
+#curAccountModal .modal-body{
+  padding: 18px 20px 6px;
+}
+
+/* Label 與表單控制項 */
+#curAccountModal .form-label{
+  font-weight: 700;
+  font-size: .9rem;
+  color: #466a84;
+}
+
+#curAccountModal .form-control,
+#curAccountModal .form-select{
+  border-radius: 12px;
+  border: 1px solid #d4e3ee;
+  padding: 10px 12px;
+  box-shadow: none;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+
+#curAccountModal .form-control:focus,
+#curAccountModal .form-select:focus{
+  border-color: #1596d4;
+  box-shadow: 0 0 0 .2rem rgba(21,150,212,.15);
+}
+
+/* 底部按鈕區 */
+#curAccountModal .modal-content .mt-3{
+  padding: 0 20px 20px;
+}
+
+#curAccountModal .btn-primary{
+  background: #1596d4;
+  border-color: #1596d4;
+}
+#curAccountModal .btn-primary:hover{
+  background: #0f79ab;
+  border-color: #0f79ab;
+}
+#curAccountModal .btn-secondary{
+  background: #eaf2f8;
+  color: #275a74;
+  border-color: #eaf2f8;
+}
+#curAccountModal .btn-secondary:hover{
+  background: #dbeaf4;
+  color: #1f516a;
+}
+
+/* 彈出動畫（覆蓋 Bootstrap 預設 fade 的位移） */
+#curAccountModal.modal.fade .modal-dialog{
+  transform: translateY(24px);
+  transition: transform .25s ease, opacity .25s ease;
+}
+#curAccountModal.modal.show .modal-dialog{
+  transform: none;
+}
+
+/* 小螢幕優化 */
+@media (max-width: 576px){
+  #curAccountModal .modal-dialog{ margin: .75rem; }
+  #curAccountModal .modal-title{ font-size: 1rem; }
+}
+</style>
+
+<body>
+    <div class="card">
+        <div class="bar">
+        <div class="group">
+            <button class="btn btn-chip" id="btn-setting"><span class="i">⚙️</span>系統設定</button>
+            <button class="btn btn-chip" id="btn-account"><span class="i">🧩</span>帳號管理</button>
+        </div>
+        <div class="group">
+            <!-- <button class="btn btn-green" id="btn-gen"><span class="i">🔐</span>產生密碼</button> -->
+            <!-- <button class="btn btn-red" id="btn-logout"><span class="i">🚪</span>登出</button> -->
+            <!--<button class="btn btn-blue" id="btn-add"><span class="i">🧑‍💼</span>新增使用者</button>-->
+            <button class="btn btn-blue" id="btn-add" data-bs-toggle="modal" data-bs-target="#NewAccountModal"><span class="i">🧑‍💼</span>新增使用者</button>
+        </div>
+        </div>
+
+        <div class="table-wrap">
+        <table id="userTable" aria-label="使用者清單">
+            <thead>
+            <tr>
+                <th style="width:9%">帳號</th>
+                <th style="width:8%">姓名</th>
+                <th style="width:8%">密碼</th>
+                <th style="width:15%">單位</th>
+                <th style="width:12%">身分</th>
+                <th style="width:6%">狀態</th>
+                <th style="width:20%">備註</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+        </table>
+
+        <div class="pagination" id="pagination"></div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <a href="#" style="text-decoration:none; font-weight:800; color:#3aa3d1">Mi-tech</a> Copyright © 2019
+    </div>
+
+    <script>
+        /* ---- demo data ---- */
+        const users = {{ all_account_dict | tojson }}
+
+        console.log("users:", users);
+
+        /*
+        [
+        {account:"66666666", name:"BBBBBB", unit:"BBB診所", role:"", status:"啟用", note:"test"},
+        {account:"55555555", name:"AAAA", unit:"AAAA診所", role:"", status:"啟用", note:"dsafasdfatad asdf as fas cfas"},
+        {account:"44444444", name:"CCCCCCCC", unit:"CCCCCCCC", role:"", status:"啟用", note:"(fjsaljfewjasldfjaxsljefjeiadjfj)"},
+        {account:"test123",   name:"測試賬號", unit:"測試", role:"", status:"啟用", note:""},
+        {account:"user1",     name:"test", unit:"mit", role:"", status:"啟用", note:""},
+        {account:"admin",     name:"admin", unit:"1234", role:"管理", status:"啟用", note:""},
+        {account:"MiAdmin",   name:"管理者", unit:"管理", role:"管理", status:"啟用", note:""},
+        {account:"test1",     name:"王大明", unit:"測試", role:"", status:"啟用", note:"測試"},
+        {account:"mitech",    name:"mit", unit:"dental", role:"", status:"啟用", note:""},
+        {account:"mit1",      name:"tst", unit:"", role:"", status:"啟用", note:""},
+        {account:"test2",     name:"趙小美", unit:"測試單位", role:"", status:"啟用", note:"測試內容"},
+        {account:"test3",     name:"林大為", unit:"測試單位", role:"", status:"啟用", note:""},
+        ];
+        */
+
+        const pageSize = 8;
+        let currentPage = 1;
+
+        function renderTable(page=1)
+        {
+            const tbody = document.getElementById('tbody');
+            const start = (page-1)*pageSize, end = start+pageSize;
+            const pageRows = users.slice(start, end);
+
+            console.log("pageRows:", pageRows);
+
+            tbody.innerHTML = pageRows.map(u => {
+                const statusBadge = u.status === 'activated'
+                ? '<span class="badge badge-ok">啟用</span>'
+                : '<span class="badge badge-off">停用</span>';
+
+                const role = u.role ? `<span class="role">${u.role}</span>` : '';
+
+                return `
+                <tr>
+                    <td data-th="帳號">${u.account}</td>
+                    <td data-th="姓名">${u.name}</td>
+                    <td data-th="密碼">${u.password}</td>
+                    <td data-th="單位">${u.unit || ''}</td>
+                    <td data-th="身分">${role}</td>
+                    <td data-th="狀態">${statusBadge}</td>
+                    <td data-th="備註">${u.note || ''}</td>
+                    <td data-yj="修改">
+                      <button type="button" class="modify_btn btn btn-sm btn-primary"
+                              data-bs-toggle="modal" data-bs-target="#curAccountModal"
+                              data-f-account="${u.account ?? ''}"
+                              data-f-name="${u.name ?? ''}"
+                              data-f-password="${u.password ?? ''}"
+                              data-f-unit="${u.unit ?? ''}"
+                              data-f-role="${u.role ?? ''}"
+                              data-f-status="${u.status ?? ''}"
+                              data-f-note="${u.note ?? ''}">
+                        修改
+                      </button>
+                    </td>
+                </tr>`;
+
+            }).join('');
+
+            // pagination
+            const totalPages = Math.max(1, Math.ceil(users.length / pageSize));
+            const pager = document.getElementById('pagination');
+            const mkBtn = (label, pageNum, active=false, disabled=false) =>
+                `<button class="pager ${active?'active':''}" ${disabled?'disabled':''} data-page="${pageNum}">${label}</button>`;
+                
+            let html = '';
+            html += mkBtn('«', Math.max(1, page-1), false, page===1);
+            
+            for(let i=1;i<=totalPages;i++)
+            { 
+                html += mkBtn(i, i, i===page); 
+            }
+            
+            html += mkBtn('»', Math.min(totalPages, page+1), false, page===totalPages);
+
+            pager.innerHTML = html;
+            pager.querySelectorAll('.pager').forEach(b=>{
+                b.addEventListener('click', e=>{
+                    
+                    currentPage = Number(e.currentTarget.getAttribute('data-page'));
+                    if (users) {
+                        //renderTable(currentPage);
+                    }
+                });
+            });
+        }
+
+        /* demo actions */
+        /*
+        document.getElementById('btn-gen').addEventListener('click', ()=>alert('已為選取的使用者產生新密碼（示意）。'));
+        document.getElementById('btn-logout').addEventListener('click', ()=>alert('已登出（示意）。'));
+        document.getElementById('btn-add').addEventListener('click', ()=>alert('開啟「新增使用者」視窗（示意）。'));
+        */
+
+        if (users != {}) {
+            renderTable(currentPage);
+        }
+    </script>
+</body>
+
+<div class="modal fade" id="curAccountModal" tabindex="-1" aria-labelledby="curAccountModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" enctype="multipart/form-data" action="/record/confirm_account" class="card p-4" id="account_form">
+                <div class="modal-header custom-modal-header">
+                    <h5 class="modal-title animated-title" id="curAccountModalLabel">
+                        <i class="fas fa-edit fa-beat"></i> 編輯使用者
+                    </h5>
+                </div>
+
+                <div class="modal-body">
+                  <div class="mb-3">
+                    <label class="form-label">帳號</label>
+                    <input name="f_account" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">姓名</label>
+                    <input name="f_name" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">密碼</label>
+                    <input name="f_password" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">單位</label>
+                    <input name="f_unit" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">身分</label>
+                    <select name="f_role" class="form-select">
+                      <option value="system manager">系統管理者</option>
+                      <option value="resource manager">資源管理者</option>
+                      <option value="tester">試用者</option>
+                    </select>
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label">狀態</label>
+                    <select name="f_status" class="form-select">
+                      <option value="activated">啟用</option>
+                      <option value="deactivated">停用</option>
+                    </select>
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label">備註</label>
+                    <textarea name="f_note" class="form-control" rows="3"></textarea>
+                  </div>
+                </div>
+                <div class="mt-3 d-flex gap-2 justify-content-end">
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                  <button type="submit" class="btn btn-primary">儲存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="NewAccountModal" tabindex="-1" aria-labelledby="NewAccountModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" enctype="multipart/form-data" action="/record/confirm_add_account" class="card p-4" id="add_account_form">
+                <div class="modal-header custom-modal-header">
+                    <h5 class="modal-title animated-title" id="NewAccountModalLabel">
+                        <i class="fas fa-edit fa-beat"></i> 新增使用者
+                    </h5>
+                </div>
+
+                <div class="modal-body">
+                  <div class="mb-3">
+                    <label class="form-label">帳號</label>
+                    <input name="f_account" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">姓名</label>
+                    <input name="f_name" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">密碼</label>
+                    <input name="f_password" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">單位</label>
+                    <input name="f_unit" class="form-control">
+                  </div>
+                  <div class="mb-3">
+                    <label class="form-label">身分</label>
+                    <select name="f_role" class="form-select">
+                      <option value="system manager">系統管理者</option>
+                      <option value="resource manager">資源管理者</option>
+                      <option value="tester">試用者</option>
+                    </select>
+                  </div>
+                  <div class="col-6">
+                    <label class="form-label">狀態</label>
+                    <select name="f_status" class="form-select">
+                      <option value="activated">啟用</option>
+                      <option value="deactivated">停用</option>
+                    </select>
+                  </div>
+                  <div class="col-12">
+                    <label class="form-label">備註</label>
+                    <textarea name="f_note" class="form-control" rows="3"></textarea>
+                  </div>
+                </div>
+                <div class="mt-3 d-flex gap-2 justify-content-end">
+                  <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                  <button type="submit" class="btn btn-primary">儲存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

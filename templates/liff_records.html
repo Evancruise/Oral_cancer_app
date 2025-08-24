@@ -2,7 +2,13 @@
 {% extends "liff_base.html" %}
 
 {% block content %}
-<div class="header"> <i class="fas fa-images"></i> 歷史紀錄 </div>
+<div class="header">
+    <div class="logo"></div>
+    <div class="title">
+      <h1>醫快拍</h1>
+      <small>病歷影像記錄系統</small>
+    </div>
+</div>
 
 {% for date_display, items in grouped_records.items() %}
   <div class="date-divider">{{ date_display }}</div>
@@ -43,6 +49,10 @@
     <i class="fas fa-plus"></i>
 </a>
 
+<div class="footer">
+    <a href="#" style="text-decoration:none; font-weight:800; color:#3aa3d1">Mi-tech</a> Copyright © 2019
+</div>
+
 <!-- 新增紀錄的 Modal 彈窗 -->
 <div class="modal fade" id="newRecordModal" tabindex="-1" aria-labelledby="newRecordModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -66,7 +76,7 @@
                     <div class="modal-body">
                         <div class="mb-3">
                             <label class="form-label">病患姓名</label>
-                            <input type="text" name="name" class="form-control" required>
+                            <input type="text" name="name" class="form-control" value="{{ name }}" readonly>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">性別</label>
@@ -176,7 +186,7 @@
                     <div class="modal-body">
                         <div class="mb-3">
                             <label class="form-label">病患姓名</label>
-                            <input type="text" name="name" class="form-control" required>
+                            <input type="text" name="name" class="form-control" value="{{ name }}" readonly>
                         </div>
                         <div class="mb-3">
                             <label class="form-label">性別</label>
@@ -356,7 +366,12 @@
     <div class="modal-content text-center p-3">
       
       <form method="POST" enctype="multipart/form-data" class="card p-4" id="upload_form">
-        <h5 class="modal-title mb-3" id="PhotoModalLabel">即時拍照</h5>
+        <div class="modal-header custom-modal-header">
+            <h5 class="modal-title animated-title" id="PhotoModalLabel">
+                <i class="fa-regular fa-camera"></i> 即時拍照
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
         
         <video id="video" width="640" height="480" autoplay></video>
         <canvas id="canvas" width="640" height="480" style="display:none"></canvas>
@@ -365,16 +380,25 @@
         
         <input type="hidden" id="upload_img" value="" hidden>
 
-        <div class="mt-3">
-            <!-- <button id="capture" class="btn btn-danger">拍攝影像</button> -->
-            <!--<button id="capture_TEMPLATE" class="btn btn-danger" data-code="">拍照</button>-->
-            <button id="captureBtn">拍照</button>
-        </div>
-        <div class="mt-3">
-            <!-- <button type="submit" id="upload_TEMPLATE" class="btn btn-danger">影像確認</button> -->
-            <!-- <button id="captureBtn">拍照</button> -->
-            <button id="uploadBtn">上傳</button>
-        </div>
+        <button type="button" id="prevBtn" class="btn btn-outline-secondary">
+            <i class="fas fa-arrow-alt-circle-left"></i> 回上一頁
+        </button>
+
+        <button type="button" id="resetBtn" class="btn btn-outline-secondary d-none">
+            <i class="fa fa-camera-retro"></i> 重新拍照
+        </button>
+
+        <!-- <button id="capture" class="btn btn-danger">拍攝影像</button> -->
+        <!--<button id="capture_TEMPLATE" class="btn btn-danger" data-code="">拍照</button>-->
+        <button id="captureBtn" class="btn btn-outline-secondary" data-code="">
+            <i class="fa fa-camera-shutter"></i> 拍照
+        </button>
+
+        <!-- <button type="submit" id="upload_TEMPLATE" class="btn btn-danger">影像確認</button> -->
+        <!-- <button id="captureBtn">拍照</button> -->
+        <button id="uploadBtn" class="btn btn-outline-secondary">
+            <i class="fa-regular fa-image-circle-check"></i> 上傳
+        </button>
       </form>
     </div>
   </div>

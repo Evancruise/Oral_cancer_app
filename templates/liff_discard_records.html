@@ -2,7 +2,13 @@
 {% extends "liff_base.html" %}
 
 {% block content %}
-<div class="header"> <i class="fas fa-images"></i> 垃圾桶 </div>
+<div class="header">
+    <div class="logo"></div>
+    <div class="title">
+      <h1>醫快拍</h1>
+      <small>病歷影像記錄系統</small>
+    </div>
+</div>
 
 {% for date_display, items in grouped_records.items() %}
     <div class="date-divider">{{ date_display }}</div>
@@ -37,6 +43,10 @@
         </a>
     {% endfor %}
 {% endfor %}
+
+<div class="footer">
+    <a href="#" style="text-decoration:none; font-weight:800; color:#3aa3d1">Mi-tech</a> Copyright © 2019
+</div>
 
 <!-- 編輯 Modal 彈窗 -->
 <div class="modal fade" id="viewRecordModal" tabindex="-1" aria-labelledby="viewRecordModalLabel" aria-hidden="true">

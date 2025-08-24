@@ -3,10 +3,6 @@
 const add_form = document.getElementById("add_form");
 const edit_form = document.getElementById("edit_form");
 
-const photo_modal = document.getElementById("PhotoModal");
-const captureBtn = photo_modal.querySelector("#captureBtn");
-const uploadBtn = photo_modal.querySelector("#uploadBtn");
-
 export function logUploadedFiles(scope = document) {
     for (let i = 1; i <= 8; i++) {
         const input = scope.querySelector(`#upload_${i}`);
@@ -38,6 +34,8 @@ export function bindImageResultPreview(parts, scope = document) {
 
 function showPhotoModal(code, scope_name) {
     // 只更新 dataset，不改 id 或重新綁事件
+    const photo_modal = document.getElementById("PhotoModal");
+
     photo_modal.dataset.currentCode = code;
     photo_modal.dataset.prev_modalname = scope_name;
 
@@ -45,12 +43,17 @@ function showPhotoModal(code, scope_name) {
     const modal = bootstrap.Modal.getOrCreateInstance(photo_modal);
     modal.show();
 
+    document.getElementById("video").style.display = "flex";
+    document.getElementById("result_img").src = "";
+
     // 啟動攝影機（只打開一次也可以，視需求）
     navigator.mediaDevices.getUserMedia({ video: true })
         .then(stream => { document.getElementById("video").srcObject = stream; });
 }
 
 export function bindImageUploadPreview(parts, scope = document, scope_name = null) {
+    const photo_modal = document.getElementById("PhotoModal");
+    
     console.log("bindImageUploadPreview() called with scope:", scope);
 
     parts.forEach(([code, label]) => {
@@ -59,6 +62,7 @@ export function bindImageUploadPreview(parts, scope = document, scope_name = nul
         const uploadInput2 = scope.querySelector(`#upload2_${code}`);
         const previewImg = scope.querySelector(`#preview_${code}`);
         // const captureBtn = scope.querySelector(`#capture_${code}`);
+        const captureBtn = photo_modal.querySelector("#captureBtn");
         
         /*
         if (captureBtn) {

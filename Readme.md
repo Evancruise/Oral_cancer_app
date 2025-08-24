@@ -1,279 +1,268 @@
-# Mask R-CNN for Object Detection and Segmentation using TensorFlow 2.0
+# Multi-Agent System — DINOv2 (Swin-Transformer–based visual analyzer) + Mask R-CNN (image analyzer) + RAG-based LLM (data retriever) with PyTorch
 
-The [Mask-RCNN-TF2](https://github.com/ahmedfgad/Mask-RCNN-TF2) project edits the original [Mask_RCNN](https://github.com/matterport/Mask_RCNN) project, which only supports TensorFlow 1.0, so that it works on TensorFlow 2.0. Based on this new project, the [Mask R-CNN](https://arxiv.org/abs/1703.06870) can be trained and tested (i.e make predictions) in TensorFlow 2.0. The Mask R-CNN model generates bounding boxes and segmentation masks for each instance of an object in the image. It's based on Feature Pyramid Network (FPN) and a ResNet101 backbone.
+This project combines a visual analyzer, instance segmentation, and retrieval-augmented generation (RAG) to build a practical multi-agent pipeline for medical imaging and knowledge grounding.
 
-Compared to the source code of the old [Mask_RCNN](https://github.com/matterport/Mask_RCNN) project, the [Mask-RCNN-TF2](https://github.com/ahmedfgad/Mask-RCNN-TF2) project edits the following 2 modules:
+---
 
-1. `model.py`
-2. `utils.py`
+## Table of Contents
+- [Features](#features)
+- [Use Without Installation](#use-without-installation)
+- [Data Preparation](#data-preparation)
+- [Step-by-Step Inspection (Notebooks)](#step-by-step-inspection-notebooks)
+- [LLM + RAG Integration](#llm--rag-integration)
+- [Quick Start](#quick-start)
+- [Model Deployment](#model-deployment)
+- [Image / Static Asset Versioning](#image--static-asset-versioning)
+- [Push to Registries](#push-to-registries)
+- [K8s Manifests](#k8s-manifests)
+- [GitHub Actions (CI/CD)](#github-actions-cicd)
+- [Nginx Config](#nginx-config)
+- [Run with Docker & .env](#run-with-docker--env)
+- [Citation](#citation)
+- [App Screenshot](#app-screenshot)
+- [References](#references)
+- [Projects Using This Model](#projects-using-this-model)
 
-The [Mask-RCNN-TF2](https://github.com/ahmedfgad/Mask-RCNN-TF2) project is tested against **TensorFlow 2.0.0**, **Keras 2.2.4-tf**, and **Python 3.7.3**. Note that the project will not run in TensorFlow 1.0.
+---
 
-# Use the Project Without Installation
+## Features
+- Mask R-CNN (FPN + ResNet-101) implementation under `mrcnn/`
+- ParallelModel for multi-GPU training
+- MS COCO AP evaluation utilities
+- Step-by-step inspection notebooks (data/model/weights)
+- Minimal RAG + LLM API (FastAPI/Flask), with mock LLM or external TGI/vLLM via env
+- Dockerfiles and GitHub Actions CI/CD examples
 
-It is not required to install the project. It is enough to copy the `mrcnn` directory to where you are using it.
+---
 
-Here are the steps to use the project for making predictions:
+## Use Without Installation
+If you only need to run predictions, see **Quick Start** below. For training/evaluation, follow **Data Preparation** and **Notebooks** sections.
 
-1. Create a root directory (e.g. **Object Detection**)
-2. Copy the [mrcnn](https://github.com/ahmedfgad/Mask-RCNN-TF2/tree/master/mrcnn) directory inside the root directory.
-3. Download the pre-trained weights inside the root directory. The weights can be downloaded from [this link](https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5): https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5.
-4. Create a script for object detection and save it inside the root directory. This script is an example: [samples/mask-rcnn-prediction.py](samples/mask-rcnn-prediction.py). Its code is listed in the next section.
-5. Run the script.
+---
 
-The directory tree of the project is as follows:
-
-```
-Object Detection:
-	mrcnn:
-	mask_rcnn_coco.h5
-	mask-rcnn-prediction.py
-```
-
-# Code for Prediction/Inference
-
-The next code uses the pre-trained weights of the Mask R-CNN model based on the COCO dataset. The trained weights can be downloaded from [this link](https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5): https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5. The code is accessible through the [samples/mask-rcnn-prediction.py](samples/mask-rcnn-prediction.py) script.
-
-The COCO dataset has 80 classes. There is an additional class for the background named **BG**. Thus, the total number of classes is 81. The classes names are listed in the `CLASS_NAMES` list. **DO NOT CHANGE THE ORDER OF THE CLASSES**.
-
-After making prediction, the code displays the input image after drawing the bounding boxes, masks, class labels, and prediction scores over all detected objects.
-
-```python
-import mrcnn
-import mrcnn.config
-import mrcnn.model
-import mrcnn.visualize
-import cv2
-import os
-
-# load the class label names from disk, one label per line
-# CLASS_NAMES = open("coco_labels.txt").read().strip().split("\n")
-
-CLASS_NAMES = ['BG', 'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush']
-
-class SimpleConfig(mrcnn.config.Config):
-    # Give the configuration a recognizable name
-    NAME = "coco_inference"
-    
-    # set the number of GPUs to use along with the number of images per GPU
-    GPU_COUNT = 1
-    IMAGES_PER_GPU = 1
-
-	# Number of classes = number of classes + 1 (+1 for the background). The background class is named BG
-    NUM_CLASSES = len(CLASS_NAMES)
-
-# Initialize the Mask R-CNN model for inference and then load the weights.
-# This step builds the Keras model architecture.
-model = mrcnn.model.MaskRCNN(mode="inference", 
-                             config=SimpleConfig(),
-                             model_dir=os.getcwd())
-
-# Load the weights into the model.
-# Download the mask_rcnn_coco.h5 file from this link: https://github.com/matterport/Mask_RCNN/releases/download/v2.0/mask_rcnn_coco.h5
-model.load_weights(filepath="mask_rcnn_coco.h5", 
-                   by_name=True)
-
-# load the input image, convert it from BGR to RGB channel
-image = cv2.imread("sample_image.jpg")
-image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-# Perform a forward pass of the network to obtain the results
-r = model.detect([image], verbose=0)
-
-# Get the results for the first image.
-r = r[0]
-
-# Visualize the detected objects.
-mrcnn.visualize.display_instances(image=image, 
-                                  boxes=r['rois'], 
-                                  masks=r['masks'], 
-                                  class_ids=r['class_ids'], 
-                                  class_names=CLASS_NAMES, 
-                                  scores=r['scores'])
-```
-
-# Transfer Learning
-
-The **oralcancer-transfer-learning** directory has both the data and code for training and testing the Mask R-CNN model using TensorFlow 2.0. Here is the content of the directory:
+## Data Preparation
+Datasets are split into **train/val/test**. Use `annotation_platform.py` for annotations.
 
 ```
-oralcancer-transfer-learning:
-	oralcancer:
-		images: training_datasets/*_00.png
-		annots: training_datasets/*_00_mask.png
-	MaskRCNN_Microcontroller_Segmentation_oral_cancer_dataset_tf2.py
+annotations/
+dataset/
+ ├─ all/
+ │  ├─ annotations_mask/
+ │  ├─ annotations_pt/
+ │  └─ images/
+ ├─ test/
+ │  ├─ annotations/
+ │  └─ images/
+ ├─ train/
+ │  ├─ annotations/
+ │  └─ images/
+ └─ val/
+    ├─ annotations/
+    └─ images/
+annotation_platform.py   # annotation tool
 ```
 
-The repository includes:
-* Source code of Mask R-CNN built on FPN and ResNet101 inside the `mrcnn` directory.
-* Training code for MS COCO
-* Jupyter notebooks to visualize the detection pipeline at every step
-* ParallelModel class for multi-GPU training
-* Evaluation on MS COCO metrics (AP)
-* Example of training on your own dataset
+**Repository includes**
+- Mask R-CNN (FPN + ResNet-101) under `mrcnn/`
+- ParallelModel for multi-GPU training
+- COCO-style AP evaluation
+- Example training on custom datasets
 
-The code is documented and designed to be easy to extend. If you use it in your research, please consider citing this repository (bibtex below).
+> If you use this code in research, please consider citing (BibTeX below).
 
-# Step by Step Detection
-To help with debugging and understanding the model, there are 3 notebooks 
-([inspect_data.ipynb](inspect_data.ipynb), [inspect_model.ipynb](inspect_model.ipynb),
-[inspect_weights.ipynb](inspect_weights.ipynb)) that provide a lot of visualizations and allow running the model step by step to inspect the output at each point. Here are a few examples:
+---
 
-## 1. Anchor sorting and filtering
-Visualizes every step of the first stage Region Proposal Network and displays positive and negative anchors along with anchor box refinement.
+## Step-by-Step Inspection (Notebooks)
+Three Jupyter notebooks provide visual, incremental inspection:
 
-## 2. Bounding Box Refinement
-This is an example of final detection boxes (dotted lines) and the refinement applied to them (solid lines) in the second stage.
+- `inspect_data.ipynb` — data, anchors, RPN steps  
+- `inspect_model.ipynb` — proposals, box refinement, masks  
+- `inspect_weights.ipynb` — weight histograms, health checks  
 
-## 3. Mask Generation
-Examples of generated masks. These then get scaled and placed on the image in the right location.
+### 1) Anchor Sorting & Filtering
+Visualizes RPN steps, positive/negative anchors, and anchor box refinement.
 
-![](training_dataset/000001_00_label.png)
-![](training_dataset/000001_01_mask.png)
+### 2) Bounding-Box Refinement
+Shows final detection boxes (dotted) and refinements (solid).
 
-## 4. Layer activations
-Often it's useful to inspect the activations at different layers to look for signs of trouble (all zeros or random noise).
+### 3) Mask Generation
+Generated masks (scaled and placed correctly):
 
-## 5. Weight Histograms
-Another useful debugging tool is to inspect the weight histograms. These are included in the inspect_weights.ipynb notebook.
+![label](training_dataset/000001_00_label.png)
+![mask](training_dataset/000001_01_mask.png)
 
-## 6. Logging to TensorBoard
-TensorBoard is another great debugging and visualization tool. The model is configured to log losses and save weights at the end of every epoch.
+### 4) Layer Activations
+Check for pathologies (all-zero, noise).
 
-![](logs/detection_tensorboard.jpg)
+### 5) Weight Histograms
+Included in `inspect_weights.ipynb`.
 
-## 7. Composing the different pieces into a final result
+### 6) TensorBoard Logging
+Loss curves & checkpoints per epoch.  
+![tensorboard](logs/detection_tensorboard.jpg)
 
-![](predicted_result/000001_00.png)
+### 7) Putting It All Together
+![result](predicted_result/000001_00.png)
 
-## 8. Plotting the performance metrics (confusion matrices/precision-recall curve)
+### 8) Metrics: Confusion Matrix / PR Curve
+![cm](current_confusion_matrix.png)
+![pr](precision_recall_curve_dinov2_yolov5.png)
 
-![](confusion_matrix_maskrcnn_per_image_mask_rcnn_microcontroller_detection_0050.png)
-![](precision_recall_curve_pascal_50_0.1048_0.0878.h5.png)
+---
 
-# Training on Your Own Dataset
+## LLM + RAG Integration
+**Minimal RAG + LLM API (FastAPI/Flask):**
+- Lightweight retrieval with TF-IDF (scikit-learn)
+- Mock LLM by default; optionally call TGI/vLLM via environment variables
+- Dockerfile included
+- GitHub Actions CI/CD workflow included
 
-Start by reading this [blog post about the balloon color splash sample](https://engineering.matterport.com/splash-of-color-instance-segmentation-with-mask-r-cnn-and-tensorflow-7c761e238b46). It covers the process starting from annotating images to training to using the results in a sample application.
+---
 
-# tranining command
+## Quick Start
+
+### [1] Create virtualenv & Install
 ```bash
-python MaskRCNN_Microcontroller_Segmentation_oral_cancer_dataset_tf2.py --mask_mode MaskRCNN --training_or_inference_mode training --backbone resnet50
+python -m venv .venv
+# Windows
+.venv\Scripts\activate
+# macOS/Linux
+# source .venv/bin/activate
+
+pip install -r requirements.txt
 ```
-# continue training command
+
+### [2] Run app
 ```bash
-python MaskRCNN_Microcontroller_Segmentation_oral_cancer_dataset_tf2.py --mask_mode MaskRCNN --training_or_inference_mode training --model_path logs/microcontroller_detection20211005T1315_resnet50/mask_rcnn_resnet50_microcontroller_detection_0109.h5
+python app_entry.py
 ```
-# inference command
+
+### Example request
 ```bash
-python MaskRCNN_Microcontroller_Segmentation_oral_cancer_dataset_tf2.py --mask_mode MaskRCNN --training_or_inference_mode inference --model_path logs/microcontroller_detection20211004T1330_resnet50/mask_rcnn_resnet50_microcontroller_detection_0079.h5 --backbone resnet50 --device 0
+curl -X POST "http://localhost:8000/rag/answer" \
+  -H "Content-Type: application/json" \
+  -d '{"question": "What is oral leukoplakia screening suggestion?"}'
 ```
-# autolabel command
+
+---
+
+## Model Deployment
+
+### [1] 模型版本管理（上傳至 GCS）
+1) 建立 bucket 並上傳模型：
 ```bash
-python MaskRCNN_Microcontroller_Segmentation_oral_cancer_dataset_tf2.py --mask_mode MaskRCNN --training_or_inference_mode autolabel --model_path logs/microcontroller_detection20210819T1431_resnet152/mask_rcnn_resnet152_microcontroller_detection_0200.h5 --backbone resnet152 --device 0
+gcloud storage buckets create gs://model-bucket-20250820 --location=asia-east1
+gcloud storage cp dinov2_token_segmentation_final.pth \
+  gs://model-bucket-20250820/models/
 ```
-In summary, to train the model on your own dataset you'll need to extend two classes:
 
-```Config```
-This class contains the default configuration. Subclass it and modify the attributes you need to change.
-
-```Dataset```
-This class provides a consistent way to work with any dataset. 
-It allows you to use new datasets for training without having to change 
-the code of the model. It also supports loading multiple datasets at the
-same time, which is useful if the objects you want to detect are not 
-all available in one dataset. 
-
-See examples in `samples/shapes/train_shapes.ipynb`, `samples/coco/coco.py`, `samples/balloon/balloon.py`, and `samples/nucleus/nucleus.py`.
-
-## Differences from the Official Paper
-This implementation follows the Mask RCNN paper for the most part, but there are a few cases where we deviated in favor of code simplicity and generalization. These are some of the differences we're aware of. If you encounter other differences, please do let us know.
-
-* **Image Resizing:** To support training multiple images per batch we resize all images to the same size. For example, 1024x1024px on MS COCO. We preserve the aspect ratio, so if an image is not square we pad it with zeros. In the paper the resizing is done such that the smallest side is 800px and the largest is trimmed at 1000px.
-* **Bounding Boxes**: Some datasets provide bounding boxes and some provide masks only. To support training on multiple datasets we opted to ignore the bounding boxes that come with the dataset and generate them on the fly instead. We pick the smallest box that encapsulates all the pixels of the mask as the bounding box. This simplifies the implementation and also makes it easy to apply image augmentations that would otherwise be harder to apply to bounding boxes, such as image rotation.
-
-    To validate this approach, we compared our computed bounding boxes to those provided by the COCO dataset.
-We found that ~2% of bounding boxes differed by 1px or more, ~0.05% differed by 5px or more, 
-and only 0.01% differed by 10px or more.
-
-* **Learning Rate:** The paper uses a learning rate of 0.02, but we found that to be
-too high, and often causes the weights to explode, especially when using a small batch
-size. It might be related to differences between how Caffe and TensorFlow compute 
-gradients (sum vs mean across batches and GPUs). Or, maybe the official model uses gradient
-clipping to avoid this issue. We do use gradient clipping, but don't set it too aggressively.
-We found that smaller learning rates converge faster anyway so we go with that.
-
-## Contributing
-Contributions to this repository are welcome. Examples of things you can contribute:
-* Speed Improvements. Like re-writing some Python code in TensorFlow or Cython.
-* Training on other datasets.
-* Accuracy Improvements.
-* Visualizations and examples.
-
-You can also [join our team](https://matterport.com/careers/) and help us build even more projects like this one.
-
-## Requirements
-Python 3 (tested on Python 3.7.3), TensorFlow 2.0.0, Keras 2.2.4-tf and other common packages listed in `requirements.txt`.
-
-## Installation
-1. Clone this repository
-   ```bash
-   git clone https://github.com/Evancruise/OralCancerAI/
-   ```
-2. Install dependencies
-   ```bash
-   pip3 install -r requirements.txt
-   ```
-3. Run setup from the repository root directory
-    ```bash
-    python3 setup.py install
-    ```
-4. Download pre-trained COCO weights (mask_rcnn_coco.h5) from the [releases page](https://github.com/matterport/Mask_RCNN/releases).
-5. (Optional) To train or test on MS COCO install `pycocotools` from one of these repos. They are forks of the original pycocotools with fixes for Python3 and Windows (the official repo doesn't seem to be active anymore).
-
-    * Linux: https://github.com/waleedka/coco
-    * Windows: https://github.com/philferriere/cocoapi.
-    You must have the Visual C++ 2015 build tools on your path (see the repo for additional details)
-
-# Implement PyQt
-
-## Prerequisite
-1. install required packages
+2) 查看檔案：
 ```bash
-pip install pyqt5 pyqtgraph pandas trackpy imageio--ffmpeg scikit-image==0.13
+gcloud storage ls gs://model-bucket-20250820/models/
 ```
-If working in the virtual environment tensorflow: it will be under /home/username/tensorflow/lib/python3.5/site-packages/pyqtgraph/graphicitems/
 
-2. wrap the app program
+### [2] 建立 Docker 映像
+> 你可以用 **Option A: Google Cloud Build** 或 **Option B: 本地 Docker**。
 
+**Option A — Cloud Build → GCR**
 ```bash
-pyinstaller -p utils -p model_resnet -p visualize -w Oralcancerapp.py
+gcloud config set project YOUR_PROJECT_ID
+gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/flask-app:latest
 ```
 
-## App screenshot
+**Option B — Local Docker → GCR**
+```bash
+# Build
+docker build -t gcr.io/YOUR_PROJECT_ID/flask-app:latest .
 
-![](screenshot) ![](screenshot.jpg)
+# (可選) 登入並推送
+gcloud auth configure-docker
+docker push gcr.io/YOUR_PROJECT_ID/flask-app:latest
+```
 
-## Model deployment
+> 說明：`gcr.io/<PROJECT_ID>/<IMAGE_NAME>:<TAG>`
 
-# [1] 模型版本管理
-# 1. 建立 Docker
-docker build -t oralcancer_ai_template .
+### [3] 本地測試
+請確保容器內服務監聽 `8000`（與 Quick Start 一致）：
+```bash
+docker run -p 8000:8000 gcr.io/YOUR_PROJECT_ID/flask-app:latest
 
-# [2] 圖片版本管理
-# 1. 啟動 Docker 時掛載 Volume 
+curl -X POST "http://localhost:8000/rag/answer" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"What is leukoplakia?"}'
+```
 
-## 方式1: 使用 docker run 掛載目錄
+### [4] 部署到 Cloud Run
+```bash
+gcloud run deploy flask-dino-service \
+  --image gcr.io/YOUR_PROJECT_ID/flask-app:latest \
+  --platform managed \
+  --region asia-east1 \
+  --allow-unauthenticated \
+  --set-env-vars MODEL_BUCKET=model-bucket-20250820,MODEL_BLOB=models/dinov2_token_segmentation_final.pth
+```
+
+(若使用本地建置) 推送並確認：
+```bash
+docker push gcr.io/YOUR_PROJECT_ID/flask-app:latest
+gcloud container images list-tags gcr.io/YOUR_PROJECT_ID/flask-app
+```
+
+---
+
+## Image / Static Asset Versioning
+
+### Method 1 — `docker run` with volume
+```bash
 docker run -d \
   -p 5000:5000 \
-  -v C:\Users\Evan\Desktop\master\Side_project\OralCancerAPP_v3\static\images:/app/static/images \
+  -v C:\Users\Evan\Desktop\master\Side_project\OralCancerAPP_main\static\images:/app/static/images \
   --name flask-oral-images \
   oralcancer_ai_template
-
-## 方式2: 執行 docker 指令 (搭配 dockercompose.yaml)
-docker compose up --build
-docker compose -f infra/docker-compose.yml up --build (可以用-f parser來指定用特定的yml，向這個範例當中的docker-compose.yml是自定義的yaml檔案)
 ```
-version: '1'
+
+### Method 2 — `docker compose`
+```bash
+docker compose up --build
+# or specify file
+docker compose -f infra/docker-compose.yml up --build
+```
+
+---
+
+## Push to Registries
+
+### [A] DockerHub
+```bash
+docker login -u <USERNAME>
+docker tag rag-ai-api:latest <USERNAME>/rag-ai-api:latest
+docker push <USERNAME>/rag-ai-api:latest
+```
+
+### [B] GCP Artifact Registry
+> 建議改用 Artifact Registry（較新），路徑格式：  
+> `asia-east1-docker.pkg.dev/<PROJECT_ID>/<REPO>/<IMAGE>:<TAG>`
+
+```bash
+# 設定 Artifact Registry 認證
+gcloud auth configure-docker asia-east1-docker.pkg.dev
+
+# 重新標記
+docker tag rag-ai-api:latest \
+  asia-east1-docker.pkg.dev/<PROJECT_ID>/<REPO>/rag-ai-api:latest
+
+# 推送
+docker push \
+  asia-east1-docker.pkg.dev/<PROJECT_ID>/<REPO>/rag-ai-api:latest
+```
+
+---
+
+## K8s Manifests
+
+### `docker-compose.yaml` (for local dev)
+```yaml
+version: "3.9"
 services:
   flask-oral-images:
     build: .
@@ -291,8 +280,117 @@ services:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
 ```
 
-nginx.conf 
+### `deployment.yaml` (Kubernetes)
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rag-ai-api
+  namespace: staging
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: rag-ai-api
+  template:
+    metadata:
+      labels:
+        app: rag-ai-api
+    spec:
+      containers:
+      - name: rag-ai-api
+        image: <USERNAME>/rag-ai-api:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: USE_TGI
+          value: "0"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rag-ai-service
+  namespace: staging
+spec:
+  selector:
+    app: rag-ai-api
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: LoadBalancer
 ```
+
+### 部署到 **staging**
+```bash
+kubectl create namespace staging
+kubectl apply -f deployment.yaml
+kubectl get pods -n staging
+kubectl get svc  -n staging
+```
+
+### 滾動更新 / 回滾
+```bash
+# Rolling update
+kubectl set image deployment/rag-ai-api rag-ai-api=<USERNAME>/rag-ai-api:v2 -n staging
+kubectl rollout status deployment/rag-ai-api -n staging
+
+# Rollback
+kubectl rollout undo deployment/rag-ai-api -n staging
+```
+
+### 部署到 **production**（staging 驗證後）
+```bash
+kubectl create namespace production
+kubectl apply -f deployment.yaml --namespace=production
+```
+
+---
+
+## GitHub Actions (CI/CD)
+
+`.github/workflows/deploy.yml`
+```yaml
+name: CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Docker login
+        run: echo "${{ secrets.DOCKER_PASS }}" | docker login -u ${{ secrets.DOCKER_USER }} --password-stdin
+
+      - name: Build image
+        run: docker build -t ${{ secrets.DOCKER_USER }}/rag-ai-api:${{ github.sha }} .
+
+      - name: Push image
+        run: docker push ${{ secrets.DOCKER_USER }}/rag-ai-api:${{ github.sha }}
+
+      - name: Deploy to K8s (Staging)
+        uses: azure/k8s-deploy@v4
+        with:
+          manifests: |
+            ./k8s/deployment.yaml
+          images: |
+            ${{ secrets.DOCKER_USER }}/rag-ai-api:${{ github.sha }}
+          namespace: staging
+```
+
+---
+
+## Nginx Config
+`nginx.conf`
+```nginx
 server {
     listen 80;
 
@@ -307,29 +405,42 @@ server {
 }
 ```
 
-# 透過以下路徑訪問靜態圖
-# http://localhost/images/2025-07-17/test.jpg
+---
 
-# 運行 Docker
+## Run with Docker & .env
+```bash
 docker run --env-file .env -p 5000:5000 oralcancer_ai_template
+```
+
+---
 
 ## Citation
-Use this bibtex to cite this repository:
-```
+If this repository helps your research, please cite:
+
+```bibtex
 @misc{matterport_maskrcnn_2017,
-  title={Mask R-CNN for object detection and instance segmentation on Keras and TensorFlow},
-  author={Waleed Abdulla},
-  year={2017},
-  publisher={Github},
-  journal={GitHub repository},
-  howpublished={\url{https://github.com/matterport/Mask_RCNN}},
+  title        = {Mask R-CNN for object detection and instance segmentation on Keras and TensorFlow},
+  author       = {Waleed Abdulla},
+  year         = {2017},
+  publisher    = {GitHub},
+  journal      = {GitHub repository},
+  howpublished = {\url{https://github.com/matterport/Mask_RCNN}}
 }
 ```
 
-## Refernece
+---
 
-### [Usiigaci: Label-free Cell Tracking in Phase Contrast Microscopy](https://github.com/oist/usiigaci)
+## App Screenshot
+![app](app_screenshot.png)
+
+---
+
+## References
+
+### [Usiigaci: Label-free Cell Tracking in Phase Contrast Microscopy](https://github.com/oist/usiigaci)  
 A project from Japan to automatically track cells in a microfluidics platform. Paper is pending, but the source code is released.
 
-# Projects Using this Model
-If you extend this model to other datasets or build projects that use it, we'd love to hear from you.
+---
+
+## Projects Using This Model
+If you extend this model to other datasets or build projects that use it, we’d love to hear from you!

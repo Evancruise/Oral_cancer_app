@@ -1,0 +1,85 @@
+<!-- templates/liff_rebind_qr.html -->
+{% extends "liff_base.html" %}
+
+{% block content %}
+<div class="header">
+    <div class="logo"></div>
+    <div class="title">
+      <h1>醫快拍</h1>
+      <small>病歷影像記錄系統</small>
+    </div>
+</div>
+
+<body>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f6f8;
+            display: flex;
+            height: 100vh;
+        }
+
+        .change-pwd-container {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+        }
+
+        h2 {
+            text-align: center;
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .form-label {
+            margin: 8px 0 4px;
+            color: #555;
+            font-weight: bold;
+        }
+
+        .form-control {
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            outline: none;
+            transition: border-color 0.2s ease;
+        }
+
+        .form-control:focus {
+            border-color: #007BFF;
+        }
+
+        button 
+        {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+
+    <div class="rebind-pwd-container">
+        <button onclick="reloadQR()"> 重新生成 QR code </button>
+        <div class="form-group">
+            <img id="qr-image" src="/rebind-qr" alt="QR Code">
+        </div>
+    </div>
+
+    <script>
+        function reloadQR() {
+            document.getElementById("qr-image").src = "/rebind-qr?" + Date.now();
+        }
+    </script>
+
+    <div class="footer">
+        <a href="#" style="text-decoration:none; font-weight:800; color:#3aa3d1">Mi-tech</a> Copyright © 2019
+    </div>
+</body>
+{% endblock %}
