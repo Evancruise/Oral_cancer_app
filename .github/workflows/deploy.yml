@@ -19,6 +19,12 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           service_account_key: ${{ secrets.GCP_SA_KEY }}
 
+      - name: Debug SA key
+        run: |
+          echo "${{ secrets.GCP_SA_KEY }}" > ${HOME}/key.json
+          head -20 ${HOME}/key.json
+          jq .client_email ${HOME}/key.json
+    
       # 用 JSON key 登入 Docker
       - name: Docker login with Artifact Registry
         run: |
