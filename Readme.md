@@ -348,6 +348,32 @@ kubectl apply -f deployment.yaml --namespace=production
 ---
 
 ## GitHub Actions (CI/CD)
+# 腳本當中的引數 (i.e., )可以用github當中的 GitHub repo → Settings → Secrets and variables → Actions → New repository secret
+
+# 1) 先找到引數的部分
+```bash
+project_id: ${{ secrets.GCP_PROJECT_ID }}
+service_account_key: ${{ secrets.GCP_SA_KEY }}
+```
+# 2) 進入GitHub repo → Settings → Secrets and variables → Actions → New repository secret (建立以下secret keys)
+```bash
+GCP_PROJECT_ID → 你的 GCP 專案 ID，例如： oral-flask-ai-app-20250820
+GCP_SA_KEY → 你的 GCP service account JSON 金鑰內容（整份貼進去）。
+# 建立json方式: 
+# [1] 在左側選單 → 找到 IAM & Admin → Service Accounts
+# [2] 點 + Create Service Account
+#   Name: github-actions-deployer（名字可自訂）
+#   ID 會自動生成，記住這個（格式會像 github-actions-deployer@your-project-id.iam.gserviceaccount.com）
+# [3] 授權角色 (Role)
+# [4] 產生 JSON Key
+#   建立完成 Service Account 後，在列表點選它 → Keys 分頁
+#   點 Add Key → Create new key
+#   選 JSON → 它會下載一個 key.json 檔案到你的電腦
+# [5] 放到 GitHub Secrets
+#   到 GitHub repo → Settings → Secrets and variables → Actions → New repository secret
+#     Name: GCP_SA_KEY
+#     Value: 貼上剛剛的 JSON
+```
 
 `.github/workflows/deploy.yml`
 ```yaml
