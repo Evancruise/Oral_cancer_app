@@ -14,16 +14,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Step 2. Setup gcloud CLI
+      # Step 2. Setup gcloud CLI (for deploy, not for docker login)
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           service_account_key: ${{ secrets.GCP_SA_KEY }}
 
-      # Step 3. Configure docker for Artifact Registry
-      - name: Configure docker auth for Artifact Registry
-        run: gcloud auth configure-docker asia-east1-docker.pkg.dev
+      # Step 3. Authenticate Docker with Artifact Registry (using JSON key)
+      - name: Docker login with Artifact Registry
+        run: |
+          echo "${{ secrets.GCP_SA_KEY }}" > ${HOME}/key.json
+          cat ${HOME}/key.json | docker login -u _json_key --password-stdin https://asia-east1-docker.pkg.dev
 
       # Step 4. Build docker image (with SHA and latest tags)
       - name: Build docker image
