@@ -22,13 +22,14 @@ jobs:
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           service_account_key: ${{ secrets.GCP_SA_KEY }}
-
-      # Step 3. Debug SA key (可選，用來檢查 key.json 格式是否正確)
-      - name: Debug SA key
+      
+      # Step 3. Activate service account (確保 gcloud 有 active account)
+      - name: Activate service account
         run: |
           echo '${{ secrets.GCP_SA_KEY }}' > ${HOME}/key.json
-          head -5 ${HOME}/key.json
-          jq .client_email ${HOME}/key.json || true
+          gcloud auth activate-service-account --key-file=${HOME}/key.json
+          gcloud config set project ${{ secrets.GCP_PROJECT_ID }}
+          gcloud auth list
 
       # Step 4. Docker login (用 JSON key 登入 Artifact Registry)
       - name: Docker login with Artifact Registry
