@@ -5,7 +5,6 @@ on:
     branches:
       - main   # 當 main branch 有 push 時觸發
       - debug
-      
   workflow_dispatch:
 
 jobs:
@@ -17,18 +16,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Step 2. Setup gcloud CLI
+      # Step 2. Setup gcloud CLI (登入 Service Account)
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
           service_account_key: ${{ secrets.GCP_SA_KEY }}
 
-      # Step 3. Configure docker for Artifact Registry
-      - name: Configure docker auth for Artifact Registry
-        run: gcloud auth configure-docker asia-east1-docker.pkg.dev
+      # Step 3. Debug SA key (可選，用來檢查 key.json 格式是否正確)
+      - name: Debug SA key
+        run: |
+          echo '${{ secrets.GCP_SA_KEY }}' > ${HOME}/key.json
+          head -5 ${HOME}/key.json
+          jq .client_email ${HOME}/key.json || true
 
-      # Step 4. Build docker image (with SHA and latest tags)
+      # Step 4. Docker login (用 JSON key 登入 Artifact Registry)
+      - name: Docker login with Artifact Registry
+        run: |
+          echo '${{ secrets.GCP_SA_KEY }}' > ${HOME}/key.json
+          docker login -u _json_key --password-stdin https://asia-east1-docker.pkg.dev < ${HOME}/key.json
+
+      # Step 5. (可選) gcloud 的 docker helper 配置
+      - name: Configure docker auth for Artifact Registry
+        run: gcloud auth configure-docker asia-east1-docker.pkg.dev -q
+
+      # Step 6. Build docker image (with SHA and latest tags)
       - name: Build docker image
         run: |
           IMAGE="asia-east1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/flask-app-repo/flask-app"
@@ -42,13 +54,13 @@ jobs:
           echo "IMAGE_TAG_SHA=$TAG_SHA" >> $GITHUB_ENV
           echo "IMAGE_TAG_LATEST=$TAG_LATEST" >> $GITHUB_ENV
 
-      # Step 5. Push docker image (both tags)
+      # Step 7. Push docker image (both tags)
       - name: Push docker image
         run: |
           docker push ${{ env.IMAGE_TAG_SHA }}
           docker push ${{ env.IMAGE_TAG_LATEST }}
 
-      # Step 6. Deploy to Cloud Run (use commit SHA image for traceability)
+      # Step 8. Deploy to Cloud Run (use commit SHA image for traceability)
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy flask-app \
