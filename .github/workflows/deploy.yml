@@ -28,9 +28,9 @@ jobs:
       # 用 JSON key 登入 Docker
       - name: Docker login with Artifact Registry
         run: |
-          echo "${{ secrets.GCP_SA_KEY }}" > ${HOME}/key.json
-          cat ${HOME}/key.json | docker login -u _json_key --password-stdin https://asia-east1-docker.pkg.dev
-
+          echo '${{ secrets.GCP_SA_KEY }}' > ${HOME}/key.json
+          docker login -u _json_key --password-stdin https://asia-east1-docker.pkg.dev < ${HOME}/key.json
+    
       # Debug（可選，方便排查）
       - name: Check gcloud auth
         run: gcloud auth list
