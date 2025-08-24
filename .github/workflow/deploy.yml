@@ -1,0 +1,47 @@
+name: CI/CD - Build & Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main   # 當 main branch 有 push 時觸發
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1. Checkout code
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Step 2. Setup gcloud CLI
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          service_account_key: ${{ secrets.GCP_SA_KEY }}  # 你在 GCP 建的 service account JSON key
+
+      # Step 3. Configure docker for gcloud
+      - name: Configure docker auth
+        run: gcloud auth configure-docker gcr.io
+
+      # Step 4. Build docker image
+      - name: Build docker image
+        run: |
+          IMAGE="gcr.io/${{ secrets.GCP_PROJECT_ID }}/flask-app"
+          TAG="${IMAGE}:${{ github.sha }}"
+          docker build -t $TAG .
+          echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
+
+      # Step 5. Push docker image
+      - name: Push docker image
+        run: docker push ${{ env.IMAGE_TAG }}
+
+      # Step 6. Deploy to Cloud Run
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy flask-app \
+            --image ${{ env.IMAGE_TAG }} \
+            --platform managed \
+            --region asia-east1 \
+            --allow-unauthenticated
