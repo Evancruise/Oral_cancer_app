@@ -9,7 +9,7 @@ import datetime
 import qrcode
 import glob
 import sqlite3
-import json
+# import json
 import threading
 from zoneinfo import ZoneInfo
 from collections import defaultdict
@@ -24,9 +24,11 @@ from model_archive.utils_func import delete_files_in_folder, move_files_in_folde
 from model_archive.rag_library import RetrievalService, Generator
 
 from werkzeug.utils import secure_filename
-from pyngrok import ngrok
+# from pyngrok import ngrok
 from flask import Flask, render_template, request, redirect, session, url_for, jsonify, send_from_directory, abort, send_file
 from flask_socketio import SocketIO, emit
+# from waitress import serve
+
 from linebot import LineBotApi, WebhookHandler
 from flask_cors import CORS
 from linebot.models import (
@@ -1623,3 +1625,5 @@ if __name__ == "__main__":
     # app.run(host="0.0.0.0", port=5000, debug=True)
     # socketio.run(app, host=URL, debug=True)
     socketio.run(app, host="0.0.0.0", port=8000, debug=True, allow_unsafe_werkzeug=True)
+    # serve(app, host="0.0.0.0", port=8080)
+    
