@@ -1,4 +1,4 @@
-name: CI/CD - Build & Deploy to Cloud Run
+name: CI/CD - Build & Deploy to Cloud Run (Artifact Registry)
 
 on:
   push:
@@ -19,29 +19,37 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
-          service_account_key: ${{ secrets.GCP_SA_KEY }}  # 你在 GCP 建的 service account JSON key
+          service_account_key: ${{ secrets.GCP_SA_KEY }}
 
-      # Step 3. Configure docker for gcloud
-      - name: Configure docker auth
-        run: gcloud auth configure-docker gcr.io
+      # Step 3. Configure docker for Artifact Registry
+      - name: Configure docker auth for Artifact Registry
+        run: gcloud auth configure-docker asia-east1-docker.pkg.dev
 
-      # Step 4. Build docker image
+      # Step 4. Build docker image (with SHA and latest tags)
       - name: Build docker image
         run: |
-          IMAGE="gcr.io/${{ secrets.GCP_PROJECT_ID }}/flask-app"
-          TAG="${IMAGE}:${{ github.sha }}"
-          docker build -t $TAG .
-          echo "IMAGE_TAG=$TAG" >> $GITHUB_ENV
+          IMAGE="asia-east1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/flask-app-repo/flask-app"
+          TAG_SHA="${IMAGE}:${{ github.sha }}"
+          TAG_LATEST="${IMAGE}:latest"
 
-      # Step 5. Push docker image
+          # Build with both tags
+          docker build -t $TAG_SHA -t $TAG_LATEST .
+
+          # Save tags to environment
+          echo "IMAGE_TAG_SHA=$TAG_SHA" >> $GITHUB_ENV
+          echo "IMAGE_TAG_LATEST=$TAG_LATEST" >> $GITHUB_ENV
+
+      # Step 5. Push docker image (both tags)
       - name: Push docker image
-        run: docker push ${{ env.IMAGE_TAG }}
+        run: |
+          docker push ${{ env.IMAGE_TAG_SHA }}
+          docker push ${{ env.IMAGE_TAG_LATEST }}
 
-      # Step 6. Deploy to Cloud Run
+      # Step 6. Deploy to Cloud Run (use commit SHA image for traceability)
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy flask-app \
-            --image ${{ env.IMAGE_TAG }} \
+            --image ${{ env.IMAGE_TAG_SHA }} \
             --platform managed \
             --region asia-east1 \
             --allow-unauthenticated
