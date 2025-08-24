@@ -23,8 +23,10 @@ COPY . .
 RUN mkdir -p static/images
 
 # Expose port
+EXPOSE 8080
 ENV PORT=8080
 
 # Use gunicorn to serve Flask
 # CMD ["python", "app.py"]
-CMD ["gunicorn", "-k", "eventlet", "-w", "1", "-b 0.0.0.0:${PORT}", "app:app"]
+# CMD ["gunicorn", "-k", "eventlet", "-w", "1", "-b 0.0.0.0:${PORT}", "app:app"]
+CMD ["gunicorn", "-w", "1", "-b", "0.0.0.0:8080", "app:app"]

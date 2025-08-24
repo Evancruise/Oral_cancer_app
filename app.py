@@ -51,7 +51,7 @@ app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY")
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
-socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
+# socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
 result_description = None
 
 all_config = Config()
@@ -1269,7 +1269,7 @@ def qr_login(session_id):
 
     session["user_id"] = user_id
 
-    socketio.emit("qr_bound", {"msg": "QR綁定完成"}, room=f"user_{user_id}")
+    # socketio.emit("qr_bound", {"msg": "QR綁定完成"}, room=f"user_{user_id}")
 
     conn.commit()
     conn.close()
@@ -1583,43 +1583,15 @@ def upload_individual(code):
         "status": "ok",
         "files": saved_files
     })
+
+'''
 @socketio.on("connect")
 def handle_connect():
     user_id = session.get("user_id")
     if user_id:
         socketio.enter_room(request.sid, f"user_{user_id}")
+'''
 
-# === Flask Run + ngrok ===
 if __name__ == "__main__":
-    '''
-    kill_existing_ngrok()
-    config = load_config()
-
-    # 開啟 ngrok
-    public_url = str(ngrok.connect(5000))
-    print("ngrok URL:", public_url)
-
-    # 🛠 更新 LIFF endpoint（選用）
-    update_liff_endpoint(config["liff_id"], config["channel_access_token"], f"{public_url}/liff_index")
-
-    # 組成新的 webhook 完整網址（包含路徑）
-    new_webhook_url = public_url + "/callback"
-
-    # 更新 LINE webhook URL
-    update_line_webhook_url(new_webhook_url)
-
-    # 可選：自動打開瀏覽器測試頁面
-    # webbrowser.open(f"{public_url}/liff_index")
-    
-    # 如果你要自動顯示這個 ngrok URL，更新到一個檔案
-    with open("ngrok_url.txt", "w") as f:
-        f.write(str(public_url))
-
-    line_bot_api.push_message(
-        user_id,
-        TextSendMessage(text=f"模型已準備就緒！請幫我上傳一張口腔照片")
-    )
-    '''
-    # app.run(host="0.0.0.0", port=5000, debug=True)
-    # socketio.run(app, host=URL, debug=True)
-    socketio.run(app, host="0.0.0.0", port=8000, debug=True, allow_unsafe_werkzeug=True)
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
