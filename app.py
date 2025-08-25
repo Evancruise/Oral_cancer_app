@@ -48,7 +48,7 @@ def kill_existing_ngrok():
 
 # === Initialization ===
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY")
+app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24))
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 # socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
@@ -85,7 +85,7 @@ UPLOAD_DIR = "static/uploads"
 RESULT_DIR = "static/results"
 MODEL_DIR = "model_archive\checkpoints"
 
-DB_PATH = os.getenv("DB_PATH")
+DB_PATH = os.getenv("DB_PATH", "/tmp/records.db")
 progress_path = os.path.join(LOG_DIR, "train_progress.json")
 
 UPLOAD_TEMP_DIR = "static/uploads/temp"
@@ -209,8 +209,6 @@ def init_db():
 
     conn.commit()
     conn.close()
-
-init_db()
 
 '''
 @app.route("/record/view/<record_id>")
@@ -1418,6 +1416,7 @@ def index():
 def login_page():
     
     session_id = str(uuid.uuid4())
+    print("session_id:", session_id)
     session["user_id"] = session_id
     session["status"] = "pending"
 
@@ -1593,5 +1592,6 @@ def handle_connect():
 '''
 
 if __name__ == "__main__":
+    init_db()
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
