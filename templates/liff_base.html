@@ -110,8 +110,9 @@
 
             const photo_modal = document.getElementById("PhotoModal");
 
-            const video = document.getElementById("video");
-            const canvas = document.getElementById("canvas");
+            const video = photo_modal.querySelector("#video");
+            const canvas = photo_modal.querySelector("#canvas");
+            const ctx = canvas.getContext("2d");
             const result_img = document.getElementById("result_img");
             const captureBtn = document.getElementById("capture");
 
@@ -195,22 +196,6 @@
 
             if (photo_modal) {
 
-                photo_modal.addEventListener("shown.bs.modal", async () => {
-                    try {
-                        stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                        video.srcObject = stream;
-                    } catch (err) {
-                        console.error("無法開啟攝影機:", err);
-                    }
-                });
-
-                // 當 modal 關閉時，關閉攝影機
-                photo_modal.addEventListener("hidden.bs.modal", () => {
-                    if (stream) {
-                        stream.getTracks().forEach(track => track.stop());
-                    }
-                });
-
                 photo_modal.addEventListener("click", async function(e) {
                     if (e.target.id.startsWith("prev")) {
                         e.preventDefault();
@@ -251,11 +236,11 @@
                         const code = photo_modal.dataset.currentCode;
                         const prev_modal_name = photo_modal.dataset.prev_modalname;
                         
-                        const video = document.getElementById("video");
-                        const canvas = document.getElementById("canvas");
+                        //const video = document.getElementById("video");
+                        //const canvas = document.getElementById("canvas");
                         const result_img = document.getElementById("result_img"); // modal 預覽
 
-                        const ctx = canvas.getContext("2d");
+                        //const ctx = canvas.getContext("2d");
                         canvas.width = video.videoWidth;
                         canvas.height = video.videoHeight;
                         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -305,10 +290,10 @@
                         const code = photo_modal.dataset.currentCode;
                         const prev_modal_name = photo_modal.dataset.prev_modalname;
 
-                        const canvas = document.getElementById("canvas");
+                        //const canvas = document.getElementById("canvas");
                         const result_img = document.getElementById("result_img"); // modal 預覽
 
-                        const ctx = canvas.getContext("2d");
+                        //const ctx = canvas.getContext("2d");
                         canvas.width = video.videoWidth;
                         canvas.height = video.videoHeight;
                         
@@ -382,7 +367,7 @@
                             canvas.width = video.videoWidth;
                             canvas.height = video.videoHeight;
 
-                            const ctx = canvas.getContext("2d");
+                            //const ctx = canvas.getContext("2d");
                             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
                             const formData = await blobToFormData(canvas, code);
