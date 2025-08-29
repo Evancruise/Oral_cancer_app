@@ -6,6 +6,7 @@ import base64
 import uuid
 import psutil
 import datetime
+import argparse
 import qrcode
 import glob
 import sqlite3
@@ -22,6 +23,7 @@ from model_archive.main_entry import model_trainvaltest_process
 from model_archive.config import Config
 from model_archive.utils_func import delete_files_in_folder, move_files_in_folders
 from model_archive.rag_library import RetrievalService, Generator
+from model_archive.func_db import init_db
 
 from werkzeug.utils import secure_filename
 from pyngrok import ngrok
@@ -105,112 +107,6 @@ def download_model_from_gcs():
     blob = bucket.blob(MODEL_BLOB)
     blob.download_to_filename(MODEL_DIR)
     print(f"✅ 模型已下載到 {MODEL_DIR}")
-
-# Initialize the SQLite database
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
-    # 建立 users 表
-    cursor.execute('''
-        DROP TABLE IF EXISTS users;
-    ''')
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            qr_session_id TEXT,
-            create_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            name TEXT,
-            username TEXT UNIQUE,
-            password TEXT,
-            priority INTEGER,
-            status TEXT,
-            note TEXT,
-            unit TEXT
-        )
-    ''')
-
-    # 建立 records 表
-    cursor.execute('''
-        DROP TABLE IF EXISTS records;
-    ''')
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS records (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            gender TEXT NOT NULL,
-            age INTEGER NOT NULL,
-            patient_id TEXT NOT NULL,
-            result TEXT,
-            notes TEXT,
-            status TEXT,
-            progress INT,
-            message TEXT,
-            start_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            last_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            img1 TEXT,
-            img2 TEXT,
-            img3 TEXT,
-            img4 TEXT,
-            img5 TEXT,
-            img6 TEXT,
-            img7 TEXT,
-            img8 TEXT,
-            img1_result TEXT,
-            img2_result TEXT,
-            img3_result TEXT,
-            img4_result TEXT,
-            img5_result TEXT,
-            img6_result TEXT,
-            img7_result TEXT,
-            img8_result TEXT
-        )
-    ''')
-
-    # 建立 records 表 (垃圾桶)
-    cursor.execute('''
-        DROP TABLE IF EXISTS records_gb;
-    ''')
-
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS records_gb (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            gender TEXT NOT NULL,
-            age INTEGER NOT NULL,
-            patient_id TEXT NOT NULL,
-            result TEXT,
-            notes TEXT,
-            status TEXT,
-            progress INT,
-            message TEXT,
-            start_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            last_timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            img1 TEXT,
-            img2 TEXT,
-            img3 TEXT,
-            img4 TEXT,
-            img5 TEXT,
-            img6 TEXT,
-            img7 TEXT,
-            img8 TEXT,
-            img1_result TEXT,
-            img2_result TEXT,
-            img3_result TEXT,
-            img4_result TEXT,
-            img5_result TEXT,
-            img6_result TEXT,
-            img7_result TEXT,
-            img8_result TEXT
-        )
-    ''')
-
-    conn.commit()
-    conn.close()
-
-init_db()
 
 '''
 @app.route("/record/view/<record_id>")
@@ -1592,6 +1488,17 @@ def handle_connect():
         socketio.enter_room(request.sid, f"user_{user_id}")
 '''
 
+def main():
+    parser = argparse.ArgumentParser(description="範例：argparse + __main__")
+    parser.add_argument("--init_db", type=bool, default=False, help="是否初始化資料庫")
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PORT", 8080)), help="是否初始化資料庫")
+    args = parser.parse_args()
+    
+    if args.init_db:
+        init_db()
+
+    args.port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=args.port)
+
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host="0.0.0.0", port=port)
+    main()
