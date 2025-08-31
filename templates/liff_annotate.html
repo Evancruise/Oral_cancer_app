@@ -1,0 +1,863 @@
+{% extends "liff_base.html" %}
+
+{% block content %}
+<!-- Header -->
+<div class="header">
+    <div class="logo"></div>
+    <div class="title">
+    <h1>醫快拍</h1>
+    <small>病歷影像記錄系統</small>
+    </div>
+</div>
+
+<div class="card">
+    <div class="annotate-wrapper">
+      <!-- 標註控制欄 -->
+      <div class="annotate-panel">
+        <label for="imageSelect">目前標註檔案:</label>
+        <select id="imageSelect"></select>
+
+        <div style="display: flex; justify-content: space-between; gap: 0.5rem; margin-top: 0.5rem;">
+          <button type="button" onclick="prevImage()">上一張</button>
+          <button type="button" onclick="nextImage()">下一張</button>
+        </div>
+
+        <label for="labelSelect" style="margin-top: 1rem;">目前標註種類:</label>
+        <select id="labelSelect">
+          <option value="Green">Green</option>
+          <option value="Yellow">Yellow</option>
+          <option value="Red">Red</option>
+        </select>
+
+        <label for="displaySelect" style="margin-top: 1rem;">顯示標註內容：</label>
+        <select id="displaySelect">
+          <option value="all">Polygon + BBox</option>
+          <option value="polygon">只顯示 Polygon</option>
+          <option value="bbox">只顯示 Bounding Box</option>
+          <option value="none">不顯示</option>
+        </select>
+
+        <div class="form-toggle">
+          <input type="checkbox" id="checklabeling" value="yes">
+          <label for="checklabeling">啟動 / 關閉標註狀態</label>
+        </div>
+
+        <div class="form-toggle">
+          <input type="checkbox" id="allowOverlap">
+          <label for="allowOverlap">允許疊加標註</label>
+        </div>
+
+        <span id="modeStatus" style="font-size: 13px; color: #666;"></span>
+
+        <button style="margin-top: 1rem;" onclick="save()">💾 儲存標註</button>
+
+        <form id="uploadForm" enctype="multipart/form-data" style="margin-top: 1rem;">
+          <input type="file" name="images" id="imageInput" multiple style="display: none;">
+          <button type="button" id="SelectBtn">選擇圖片</button>
+          <button type="submit" id="UploadBtn">上傳圖片</button>
+        </form>
+      </div>
+
+      <!-- 標註畫布 -->
+      <div class="canvas-wrapper">
+        <canvas id="canvas" width="512" height="384"></canvas>
+        <p class="instructions">
+            <b>使用說明：</b><br>
+            Step 1: 點擊建立標註（選擇 Red / Yellow / Green）<br>
+            Step 2: 按 Enter 完成標註；按 Esc 取消；Ctrl+Z/Y Undo/Redo<br>
+            Step 3: 點選標註可選中 → 拖曳節點、點邊新增節點、點節點後 Delete 可移除<br>
+            Hover 可查看標籤 🏷️，選擇標註類型可即時變更 Label
+        </p>
+      </div>
+    </div>
+
+    <div id="tooltip"></div>
+    <div id="modal-container"></div>
+
+    <div class="footer">
+        <a href="#" style="text-decoration:none; font-weight:800; color:#3aa3d1">Mi-tech</a> Copyright © 2019
+    </div>
+</div>
+
+<style>
+  .card{ max-width:1100px; margin:0 auto 28px; background:var(--panel); border-radius:18px; box-shadow:0 10px 28px rgba(15,40,70,.10); overflow:hidden; }
+  .bar{
+    display:flex; justify-content:space-between; align-items:center; gap:12px;
+    padding:10px; background:var(--panel-dark); border-bottom:1px solid var(--border);
+  }
+  
+  .annotate-wrapper {
+    display: flex;
+    gap: 1.5rem;
+    padding: 1rem;
+  }
+  .annotate-panel {
+    flex: 0 0 260px;
+    background: #fff;
+    padding: 1rem 1.2rem;
+    border-radius: 8px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 0.8rem;
+  }
+  .canvas-wrapper {
+    flex: 1;
+    background: #fff;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 3px 15px rgba(0,0,0,0.12);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  canvas {
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    max-width: 100%;
+  }
+
+  .form-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 1rem;
+    font-weight: 600;
+    color: #444;
+  }
+  /* 隱藏原始 checkbox */
+  .form-toggle input[type="checkbox"] {
+    appearance: none;
+    width: 42px;
+    height: 22px;
+    background: #ccc;
+    border-radius: 30px;
+    position: relative;
+    cursor: pointer;
+    outline: none;
+    transition: background 0.3s;
+  }
+
+  /* 圓形滑塊 */
+  .form-toggle input[type="checkbox"]::before {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.3s;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  }
+
+  /* 勾選狀態 */
+  .form-toggle input[type="checkbox"]:checked {
+    background: #29b6f6;
+  }
+
+  .form-toggle input[type="checkbox"]:checked::before {
+    transform: translateX(20px);
+  }
+
+  /* Tooltip */
+  #tooltip {
+    display: none;
+    position: absolute;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 6px 12px;
+    font-size: 13px;
+    border-radius: 5px;
+    pointer-events: none;
+    z-index: 9999;
+    white-space: nowrap;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script type="module">
+import { loadModal, showModal } from "{{ url_for('static', filename='js/modal.js') }}";
+loadModal("modal-container");
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const allowOverlap = document.getElementById("allowOverlap");
+let currentPoints = [];
+let redo_currentPoints = [];
+let polygons = [];
+let bboxes = [];
+let redo_polygons = [];
+let draggingPoint = null, dragIndex = null;
+let currentLabel = "Green";
+let currentImgObj = null;
+let isCreatingPolygon = false;
+let currentImage = "";
+let selectedPolygonIndex = null;
+let hoveredPolygonIndex = null;
+let selectedBBoxIndex = null;
+let drawingBox = null;
+let hoveredBBoxIndex = null;
+let displayMode = "all";
+let click_enter = false;
+let imageList = [];  // 所有圖片名稱
+let annotatedList = [];
+let currentIndex = 0;
+
+allowOverlap.addEventListener("change", () => {
+  const status = allowOverlap.checked ? "目前為：✅ 允許重疊模式" : "目前為：🚫 單一標註模式";
+  document.getElementById("modeStatus").innerText = status;
+});
+
+document.getElementById("displaySelect").onchange = (e) => {
+  displayMode = e.target.value;
+  redrawCanvas(currentImgObj);
+};
+
+document.getElementById('SelectBtn').addEventListener('click', () => {
+  document.getElementById('imageInput').click();
+});
+
+document.getElementById('labelSelect').onchange = e => {
+  currentLabel = e.target.value;
+
+  if (selectedPolygonIndex !== null && polygons[selectedPolygonIndex]) {
+    polygons[selectedPolygonIndex].label = currentLabel;
+    redrawCanvas(currentImgObj);
+  }
+
+  if (selectedBBoxIndex !== null && bboxes[selectedBBoxIndex]) {
+    bboxes[selectedBBoxIndex].label = currentLabel;
+    redrawCanvas(currentImgObj);
+  }
+};
+
+function getBoundingBox(points) {
+  const xs = points.map(p => p[0]);
+  const ys = points.map(p => p[1]);
+  const x1 = Math.min(...xs);
+  const y1 = Math.min(...ys);
+  const x2 = Math.max(...xs);
+  const y2 = Math.max(...ys);
+  return [x1, y1, x2, y2];
+}
+
+function redrawCanvas(img) {
+  
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  if (displayMode == "none") {
+    return;
+  }
+
+  if ((displayMode === "all" || displayMode === "polygon") && polygons) {
+    polygons.forEach((poly, i) => {
+      const isSelected = (i === selectedPolygonIndex);
+      const isHovered = (i === hoveredPolygonIndex);
+      drawPolygon(poly.points, poly.label, false, isSelected || isHovered, isHovered);
+    });
+  
+    if (currentPoints.length > 0)
+      drawPolygon(currentPoints, currentLabel, true);
+  }
+
+  if ((displayMode === "all" || displayMode === "bbox") && bboxes) {
+    bboxes.forEach((bbox, i) => {
+      const isSel = (i === selectedBBoxIndex);
+      const isHover = (i === hoveredBBoxIndex);
+      drawBBox(bbox.box, bbox.label, isSel, isHover);
+    });
+
+    if (drawingBox) {
+      drawBBox([...drawingBox.start, ...drawingBox.end], drawingBox.label, false, false);
+    }
+  }
+}
+
+function drawBBox(box, label, isSelected = false, isHovered = false) {
+  const [x1, y1, x2, y2] = box;
+  ctx.beginPath();
+  ctx.rect(x1, y1, x2 - x1, y2 - y1);
+
+  if (isSelected) {
+    ctx.strokeStyle = 'cyan';
+    ctx.lineWidth = 4;
+  } else if (isHovered) {
+    ctx.strokeStyle = 'blue';
+    ctx.lineWidth = 3;
+  } else {
+    ctx.strokeStyle = label === 'Green' ? 'green' :
+                      label === 'Yellow' ? 'orange' : 'red';
+    ctx.lineWidth = 2;
+  }
+
+  ctx.setLineDash([6, 4]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawPolygon(pts, label, isTemp = false, isSelected = false, isHovered = false) {
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+  if (!isTemp) ctx.closePath();
+
+  ctx.strokeStyle = isHovered || isSelected
+    ? 'cyan'
+    : (label === 'Green' ? 'green' : label === 'Yellow' ? 'orange' : 'red');
+  ctx.lineWidth = isSelected ? 4 : (isHovered ? 3 : (isTemp ? 1 : 2));
+  ctx.setLineDash(isTemp ? [5, 3] : []);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  pts.forEach(p => {
+    ctx.beginPath();
+    if (click_enter == false) {
+        ctx.arc(p[0], p[1], 3, 0, 2 * Math.PI);
+    } else {
+        ctx.arc(p[0], p[1], 1, 0, 2 * Math.PI);
+    }
+    ctx.fillStyle = isTemp ? 'gray' : label;
+    ctx.fill();
+  });
+}
+
+function isPointInPolygon(pt, polygon) {
+  const [x, y] = pt;
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const xi = polygon[i][0], yi = polygon[i][1];
+    const xj = polygon[j][0], yj = polygon[j][1];
+    const intersect = ((yi > y) !== (yj > y)) &&
+      (x < (xj - xi) * (y - yi) / (yj - yi + 1e-6) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function clearSelection() {
+    selectedPolygonIndex = null;
+    selectedBBoxIndex = null;
+    hoveredPolygonIndex = null;
+    hoveredBBoxIndex = null;
+    dragIndex = null;
+    draggingPoint = null;
+}
+
+canvas.onmousedown = function(e) {
+
+  const enable_labeling = document.getElementById("checklabeling").checked;
+  const r = canvas.getBoundingClientRect();
+  const x = e.clientX - r.left, y = e.clientY - r.top;
+  const overlapMode = allowOverlap.checked;
+
+  if (
+    selectedPolygonIndex === null &&
+    selectedBBoxIndex === null &&
+    !draggingPoint &&
+    !isCreatingPolygon
+  ) {
+    clearSelection();  // 如果你用 CanvasAnnotator 包好的話
+    redrawCanvas(currentImgObj);
+  }
+
+  if (selectedPolygonIndex !== null) {
+    const poly = polygons[selectedPolygonIndex];
+    for (let i = 0; i < poly.points.length; i++) {
+      const [px, py] = poly.points[i];
+      if (Math.hypot(px - x, py - y) < 6) {
+        draggingPoint = poly.points[i];
+        dragIndex = i;
+        return;
+      }
+    }
+    for (let i = 0; i < poly.points.length; i++) {
+      const next = (i + 1) % poly.points.length;
+      const midX = (poly.points[i][0] + poly.points[next][0]) / 2;
+      const midY = (poly.points[i][1] + poly.points[next][1]) / 2;
+      if (Math.hypot(midX - x, midY - y) < 6) {
+        poly.points.splice(next, 0, [x, y]);
+        redrawCanvas(currentImgObj);
+        return;
+      }
+    }
+  }
+
+  selectedPolygonIndex = null;
+  if (!overlapMode && polygons && polygons.length > 0) {
+    for (let i = 0; i < polygons.length; i++) {
+      if (isPointInPolygon([x, y], polygons[i].points)) {
+        selectedPolygonIndex = i;
+        document.getElementById('labelSelect').value = polygons[i].label;
+        redrawCanvas(currentImgObj);
+        return;  // ✅ 只有在不允許重疊時才 return
+      }
+    }
+  }
+
+  selectedBBoxIndex = null;
+
+  if (!overlapMode && bboxes && bboxes.length > 0) {
+    for (let i = 0; i < bboxes.length; i++) {
+      const [x1, y1, x2, y2] = bboxes[i].box;
+      if (x >= Math.min(x1, x2) && x <= Math.max(x1, x2) &&
+          y >= Math.min(y1, y2) && y <= Math.max(y1, y2)) {
+        selectedBBoxIndex = i;
+        selectedPolygonIndex = null;
+        hoveredPolygonIndex = null;
+        dragIndex = null;
+        draggingPoint = null;
+    
+        document.getElementById("labelSelect").value = bboxes[i].label;
+        redrawCanvas(currentImgObj);
+        return;
+      }
+    }
+  }
+  
+  if (!enable_labeling) {
+      return;
+  }
+
+  if (!overlapMode) {
+    selectedPolygonIndex = null;
+    for (let i = 0; i < polygons.length; i++) {
+      if (isPointInPolygon([x, y], polygons[i].points)) {
+        selectedPolygonIndex = i;
+        redrawCanvas(currentImgObj);
+        return;
+      }
+    }
+  }
+
+  if (selectedPolygonIndex === null && selectedBBoxIndex === null && !draggingPoint) {
+    selectedPolygonIndex = null;
+    hoveredPolygonIndex = null;
+  }
+
+  if (!overlapMode && polygons && polygons.length > 0) {
+    for (let i = 0; i < polygons.length; i++) {
+      if (isPointInPolygon([x, y], polygons[i].points)) {
+        if (selectedPolygonIndex === i) {
+          selectedPolygonIndex = null;
+        } else {
+          selectedPolygonIndex = i;
+          document.getElementById('labelSelect').value = polygons[i].label;
+        }
+        redrawCanvas(currentImgObj);
+        return;
+      }
+    }
+  }
+
+  click_enter = false;
+  currentPoints.push([x, y]);
+  isCreatingPolygon = true;
+  redrawCanvas(currentImgObj);
+};
+
+canvas.onmousemove = function(e) {
+  const r = canvas.getBoundingClientRect();
+  const x = e.clientX - r.left;
+  const y = e.clientY - r.top;
+
+  if (selectedPolygonIndex !== null && isCreatingPolygon === false) {
+    hoveredPolygonIndex = null;
+  }
+
+  if (draggingPoint) {
+    draggingPoint[0] = x;
+    draggingPoint[1] = y;
+    redrawCanvas(currentImgObj);
+    return;
+  }
+  console.log("isCreatingPolygon:", isCreatingPolygon);
+
+  // ✅ 只有「沒在畫 polygon」時才做 hover 判斷
+  if (!isCreatingPolygon) {
+    hoveredPolygonIndex = null;
+    if (displayMode !== "none" && (displayMode === "all" || displayMode === "polygon")) {
+      for (let i = 0; i < polygons.length; i++) {
+        if (isPointInPolygon([x, y], polygons[i].points)) {
+          hoveredPolygonIndex = i;
+          break;
+        }
+      }
+    }
+
+    hoveredBBoxIndex = null;
+    if (displayMode !== "none" && (displayMode === "all" || displayMode === "bbox")) {
+      for (let i = 0; i < bboxes.length; i++) {
+        const [x1, y1, x2, y2] = bboxes[i].box;
+        if (x >= Math.min(x1, x2) && x <= Math.max(x1, x2) &&
+            y >= Math.min(y1, y2) && y <= Math.max(y1, y2)) {
+          hoveredBBoxIndex = i;
+          break;
+        }
+      }
+    }
+
+    const tooltip = document.getElementById("tooltip");
+
+    if (hoveredPolygonIndex !== null && (displayMode === "all" || displayMode === "polygon")) {
+      tooltip.style.display = "block";
+      tooltip.style.left = (e.pageX + 10) + "px";
+      tooltip.style.top = (e.pageY + 10) + "px";
+      tooltip.innerText = polygons[hoveredPolygonIndex].label;
+    } else if (hoveredBBoxIndex !== null && displayMode === "bbox") {
+      tooltip.style.display = "block";
+      tooltip.style.left = (e.pageX + 10) + "px";
+      tooltip.style.top = (e.pageY + 10) + "px";
+      tooltip.innerText = bboxes[hoveredBBoxIndex].label;
+    } else {
+      tooltip.style.display = "none";
+    }
+
+    redrawCanvas(currentImgObj);
+  }
+};
+
+canvas.onmouseup = () => {
+  draggingPoint = null;
+  dragIndex = null;
+};
+
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && currentPoints.length >= 3) {
+        const pointsCopy = [...currentPoints];
+        polygons.push({ label: currentLabel, points: pointsCopy });
+        click_enter = true;
+      
+        const bbox = getBoundingBox(pointsCopy);
+        bboxes.push({ label: currentLabel, box: bbox });
+        currentPoints = [];
+        isCreatingPolygon = false;
+        redrawCanvas(currentImgObj);
+    } else if (e.ctrlKey && e.key === 'x') {
+        if (selectedPolygonIndex !== null && dragIndex !== null) {
+            const poly = polygons[selectedPolygonIndex];
+            if (poly.points.length > 3) {
+              poly.points.splice(dragIndex, 1);
+            } else {
+              showModal("多邊形至少需三點", () => {
+              // OK 時執行
+                console.log("使用者取消了操作");
+              }, () => {
+                // Cancel 時執行
+                console.log("使用者取消了操作");
+              });
+            }
+            dragIndex = null;
+            draggingPoint = null;
+            redrawCanvas(currentImgObj);
+        }
+        else if (selectedPolygonIndex !== null) {
+            showModal("你確定要刪除這個 Polygon 嗎？", () => {
+              // OK 時執行
+              polygons.splice(selectedPolygonIndex, 1);
+              selectedPolygonIndex = null;
+              redrawCanvas(currentImgObj);
+            }, () => {
+              // Cancel 時執行
+              console.log("使用者取消了操作");
+            });
+        }
+        else if (selectedBBoxIndex !== null) {
+            showModal("是否刪除此 Bounding Box？", () => {
+              // OK 時執行
+              bboxes.splice(selectedBBoxIndex, 1);
+              selectedBBoxIndex = null;
+              redrawCanvas(currentImgObj);
+            }, () => {
+              // Cancel 時執行
+              console.log("使用者取消了操作");
+            });
+        }
+    } else if (e.ctrlKey && e.key === 'z') {
+        undo();
+    } else if (e.ctrlKey && e.key === 'y') {
+        redo();
+    } else if (e.key === 'Escape') {
+        selectedPolygonIndex = null;
+        selectedBBoxIndex = null;
+        hoveredPolygonIndex = null;
+        redrawCanvas(currentImgObj);
+    }
+});
+
+document.getElementById('uploadForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+
+  const input = document.getElementById('imageInput');
+  const files = input.files;
+
+  const formData = new FormData();
+  for (let i = 0; i < files.length; i++) {
+    formData.append('images', files[i]);
+  }
+
+  fetch('/upload_one', {
+    method: 'POST',
+    body: formData
+  })
+  .then(res => {
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+    return res.json();
+  })
+  .then(data => {
+    const sel = document.getElementById('imageSelect');
+    sel.innerHTML = "";
+    imageList = data.filenames || [];
+    annotatedList = data.annotated || [];
+
+    for (let i = 0; i < imageList.length; i++) {
+      const opt = document.createElement('option');
+      opt.value = imageList[i];
+      opt.innerText = imageList[i];
+
+      if (annotatedList[i] == true) {
+        opt.style.backgroundColor = "#c8f7c5"; // 淺綠色代表已標記
+        opt.style.fontWeight = "bold";
+      }
+      sel.appendChild(opt);
+    }
+
+    if (imageList.length > 0) {
+      currentIndex = imageList.length - 1;
+      sel.selectedIndex = currentIndex;
+      loadImage(imageList[currentIndex]);
+    }
+  })
+  .catch(err => {
+    console.error("Upload error:", err);
+    showModal("上傳失敗！", () => {
+      // OK 時執行
+      console.log("使用者取消了操作");
+    }, () => {
+      // Cancel 時執行
+      console.log("使用者取消了操作");
+    });
+  });
+});
+/*
+function upload() {
+  const input = document.getElementById("imageInput");
+  const file = input.files[0];
+
+  if (!file) {
+    showModal("請選擇一張圖片");
+    return;
+  }
+
+  const formData = new FormData();
+  formData.append("image", file);
+
+  fetch("/upload", {
+    method: "POST",
+    body: formData
+  })
+  .then(res => res.json())
+  .then(data => {
+    if (data.success) {
+      showModal("圖片上傳成功: " + data.filename);
+      fetch('/images')
+        .then(res =>res.json())
+        .then(imgs => {
+          imageList = imgs;
+          const sel = document.getElementById('imageSelect');
+          sel.innerHTML = "";
+          for (let i = 0; i < imageList.length; i++) {
+            const opt = document.createElement('option');
+            opt.value = imageList[i];
+            opt.innerText = imageList[i];
+            sel.appendChild(opt);
+          }
+
+          currentIndex = imageList.length - 1;
+          sel.selectedIndex = currentIndex;
+          loadImage(imageList[currentIndex]);
+        })
+    } else {
+      showModal("上傳失敗:" + data.error);
+    }
+  })
+  .catch(err => {
+    console.error("上傳錯誤", err);
+    showModal("上傳失敗");
+  });
+}
+*/
+
+function undo() {
+  if (currentPoints.length > 0) {
+    redo_currentPoints.push(currentPoints.pop());
+  } else if (polygons.length > 0) {
+    redo_polygons.push(polygons.pop());
+  }
+  redrawCanvas(currentImgObj);
+}
+
+function redo() {
+  if (redo_currentPoints.length > 0) {
+    currentPoints.push(redo_currentPoints.pop());
+  } else if (redo_polygons.length > 0) {
+    polygons.push(redo_polygons.pop());
+  }
+  redrawCanvas(currentImgObj);
+}
+
+function save() {
+  const sel = document.getElementById('imageSelect');
+  const opt = document.createElement('option');
+
+  if (sel.value !== currentImage) {
+    showModal("請先選擇圖片", () => {
+      // OK 時執行
+      console.log("使用者取消了操作");
+    }, () => {
+      // Cancel 時執行
+      console.log("使用者取消了操作");
+    });
+    return;
+  }
+  const result = {
+    polygons: polygons.map(p => ({
+      label: p.label,
+      points: p.points.map(([x, y]) => [Math.round(x), Math.round(y)])
+    })),
+    bboxes: bboxes.map(b => ({
+      label: b.label,
+      box: b.box.map(Math.round)
+    }))
+  };
+
+  fetch('/save_annotation', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ annotations: result, fname: currentImage })
+  })
+  .then(res => res.json())
+  .then(data => {
+    // 修改目前選項的樣式
+    const selectedIndex = sel.selectedIndex;
+    const opt = sel.options[selectedIndex];
+    opt.style.backgroundColor = "#c8f7c5";  // 淺綠色
+    opt.style.fontWeight = "bold";
+    showModal("標註已儲存 ✅", () => {
+      // OK 時執行
+      console.log("使用者取消了操作");
+    }, () => {
+      // Cancel 時執行
+      console.log("使用者取消了操作");
+    });
+  })
+  .catch(err => {
+    console.error("儲存錯誤:", err);
+    showModal("儲存失敗 ❌", () => {
+      // OK 時執行
+      console.log("使用者取消了操作");
+    }, () => {
+      // Cancel 時執行
+      console.log("使用者取消了操作");
+    });
+  });
+}
+
+function loadImage(name) {
+  currentImage = name;
+  const img = new Image();
+  img.onload = () => {
+    currentImgObj = img;
+    fetch('/load_annotation/' + name)
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.polygons && data.bboxes) {
+            polygons = data["polygons"];
+            bboxes = data["bboxes"];
+        } else {
+            polygons = [];
+            bboxes = [];
+        }
+        currentPoints = [];
+        redrawCanvas(img);
+      });
+  };
+  img.src = '/image/' + name;
+}
+
+function prevImage() {
+  if (currentIndex > 0) {
+    currentIndex--;
+    const sel = document.getElementById('imageSelect');
+    sel.selectedIndex = currentIndex;
+    loadImage(imageList[currentIndex]);
+  } else {
+    showModal("已經是第一張圖片了！", () => {
+      // OK 時執行
+      console.log("使用者取消了操作");
+    }, () => {
+      // Cancel 時執行
+      console.log("使用者取消了操作");
+    });
+  }
+}
+
+function nextImage() {
+  if (currentIndex < imageList.length - 1) {
+    currentIndex++;
+    const sel = document.getElementById('imageSelect');
+    sel.selectedIndex = currentIndex;
+    loadImage(imageList[currentIndex]);
+  } else {
+    showModal("已經是最後一張圖片了！", () => {
+      // OK 時執行
+      console.log("使用者取消了操作");
+    }, () => {
+      // Cancel 時執行
+      console.log("使用者取消了操作");
+    });
+  }
+}
+
+window.prevImage = prevImage;
+window.nextImage = nextImage;
+window.save = save;
+
+fetch('/images')
+  .then(res => res.json())
+  .then(data => {
+    imageList = data.filenames;
+    const sel = document.getElementById('imageSelect');
+    sel.innerHTML = "";  // 清空
+
+    annotatedList = data.annotated || [];
+
+    for (let i = 0; i < imageList.length; i++) {
+      const opt = document.createElement('option');
+      opt.value = imageList[i];
+      opt.innerText = imageList[i];
+
+      if (annotatedList[i] == true) {
+        opt.style.backgroundColor = "#c8f7c5"; // 淺綠色代表已標記
+        opt.style.fontWeight = "bold";
+      }
+
+      sel.appendChild(opt);
+    }
+
+    sel.onchange = () => {
+      currentIndex = sel.selectedIndex;
+      loadImage(imageList[currentIndex]);
+    };
+
+    if (imageList.length > 0) {
+      currentIndex = 0;
+      sel.selectedIndex = 0;
+      loadImage(imageList[0]);
+    }
+  });
+</script>
+{% endblock %}

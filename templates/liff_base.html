@@ -28,6 +28,11 @@
                 </a>
             </li>
             <li>
+                <a class="nav-link {{ 'active' if request.path == '/annotate' else '' }}" href="/annotate">
+                    <i class="fas fa-history"></i> 標記平台
+                </a>
+            </li>
+            <li>
                 <a class="nav-link {{ 'active' if request.path == '/all_history' else '' }}" style="display: {{ 'flex' if (priority|default(0, true)|int == 1) else 'flex' }};" href="/all_history">
                     <i class="fas fa-history"></i> 所有病歷紀錄
                 </a>
@@ -2402,5 +2407,6 @@
             // checkStates();
         });
     </script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -50,7 +50,7 @@ def kill_existing_ngrok():
 
 # === Initialization ===
 app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET_KEY")
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "1234")
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 # socketio = SocketIO(app, async_mode="threading", cors_allowed_origins="*")
@@ -61,23 +61,23 @@ save_dir = all_config.save_dir
 
 r = redis.Redis(host="172.20.48.1", port=6379, db=0, decode_responses=True)
 
-JWT_SECRET = os.getenv("JWT_SECRET")
+JWT_SECRET = os.environ.get("JWT_SECRET")
 QR_SESSION_TTL = 300 # 5 minutes
 
-LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
-LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET")
-LINE_BOT_ID = os.getenv("LINE_BOT_ID")
-USERNAME = os.getenv("USERNAME")
-PASSWORD = os.getenv("PASSWORD")
-PASSWORD_ROOT = os.getenv("PASSWORD_ROOT")
+LINE_CHANNEL_ACCESS_TOKEN = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "")
+LINE_CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
+LINE_BOT_ID = os.environ.get("LINE_BOT_ID", "")
+USERNAME = os.environ.get("USERNAME", "")
+PASSWORD = os.environ.get("PASSWORD", "")
+PASSWORD_ROOT = os.environ.get("PASSWORD_ROOT", "")
 
 MODEL_BUCKET = os.environ.get("MODEL_BUCKET", "my-model-bucket")
 MODEL_BLOB = os.environ.get("MODEL_BLOB", "models/dinov2_token_segmentation_final.pth")
 
 URL = "127.0.0.1"
 
-USER_ID = os.getenv("USER_ID")
-TIMEZONE = os.getenv("TIMEZONE")
+USER_ID = os.environ.get("USER_ID", "")
+TIMEZONE = os.environ.get("TIMEZONE", "")
 
 LOG_DIR = "logs"
 
@@ -86,6 +86,9 @@ priority = -1
 UPLOAD_DIR = "static/uploads"
 RESULT_DIR = "static/results"
 MODEL_DIR = "model_archive\checkpoints"
+ANNOT_DIR = "model/dataset/all/annotations_json"
+
+os.makedirs(ANNOT_DIR, exist_ok=True)
 
 DB_PATH = os.getenv("DB_PATH")
 progress_path = os.path.join(LOG_DIR, "train_progress.json")
@@ -94,7 +97,7 @@ UPLOAD_TEMP_DIR = "static/uploads/temp"
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp'}
 parts = ["pic1", "pic2", "pic3", "pic4", "pic5", "pic6", "pic7", "pic8"]
-IMAGE_DIR = "static/images"
+IMAGE_DIR = "model/dataset/all/images"
 
 line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
@@ -121,6 +124,79 @@ def view_record(record_id):
         
     return render_template("record_view.html", record=dict(row))
 '''
+
+@app.route('/annotate')
+def annotate():
+    if 'user_id' not in session:
+        return redirect(url_for("login_page"))
+    return render_template('liff_annotate.html')
+
+@app.route('/save_annotation', methods=['POST'])
+def save_annotation():
+    data = request.json
+    fname = data['fname']
+    ann = data['annotations']
+
+    for item in ann["polygons"]:
+        item['points'] = [[int(round(x)), int(round(y))] for x, y in item['points']]
+
+    with open(os.path.join(ANNOT_DIR, fname.split('.')[0] + ".json"), 'w') as f:
+        json.dump(ann, f, indent=2)
+
+    return jsonify({"status": "ok"})
+
+@app.route('/load_annotation/<filename>')
+def load_annotation(filename):
+    json_path = os.path.join(ANNOT_DIR, filename.split('.')[0] + ".json")
+    if os.path.exists(json_path):
+        with open(json_path) as f:
+            return jsonify(json.load(f))
+    return jsonify([])
+
+@app.route("/upload_one", methods=["POST"])
+def upload_image():
+    files = request.files.getlist('images')
+    filenames = [f for f in os.listdir(IMAGE_DIR) if f.lower().split('.')[1] in ALLOWED_EXTENSIONS]
+    annotate_flag = []
+
+    for file in files:
+        if file == '':
+            continue
+        if not file.mimetype.startswith("image/"):
+            continue
+        filename = secure_filename(file.filename)
+        save_path = os.path.join(IMAGE_DIR, filename)
+        file.save(save_path)
+        filenames.append(filename)
+
+        json_path = os.path.join(ANNOT_DIR, filename.split('.')[0] + ".json")
+        if os.path.exists(json_path):
+            annotate_flag.append(True)
+        else:
+            annotate_flag.append(False)
+
+    return jsonify({"success": True, "filenames": filenames, "annotated": annotate_flag})
+
+@app.route('/image/<filename>')
+def get_image(filename):
+    return send_from_directory(IMAGE_DIR, filename)
+
+@app.route('/images')
+def list_images():
+    filenames = [f for f in os.listdir(IMAGE_DIR) if f.lower().split('.')[1] in ALLOWED_EXTENSIONS]
+    annotate_flag = []
+
+    for file in filenames:
+        if file == '':
+            continue
+
+        json_path = os.path.join(ANNOT_DIR, file.split('.')[0] + ".json")
+        if os.path.exists(json_path):
+            annotate_flag.append(True)
+        else:
+            annotate_flag.append(False)
+
+    return jsonify({"success": True, "filenames": filenames, "annotated": annotate_flag})
 
 @app.route("/rag/answer", methods=["POST"])
 def rag_answer():
