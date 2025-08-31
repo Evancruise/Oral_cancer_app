@@ -1324,7 +1324,7 @@ def login_page():
     qr_img.save(buffer, format="PNG")
     qr_base64 = base64.b64encode(buffer.getvalue()).decode()
 
-    return render_template("liff_index.html", qr=qr_base64, session_id=session_id)
+    return render_template("index.html", qr=qr_base64, session_id=session_id)
 
 def retrieve_priority(username):
 

@@ -1,21 +1,175 @@
-<!-- Message Modal -->
-<div id="modal" class="modal" style="display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%; background:rgba(0,0,0,0.4)">
-  <div class="modal-content" style="background:#fff; margin:15% auto; padding:20px; border:1px solid #888; width:300px; border-radius:10px; position:relative;">
-    <span id="modalClose" class="close" style="position:absolute; top:10px; right:15px; font-size:24px; cursor:pointer;">&times;</span>
-    <p id="modalMessage">這是提示內容</p>
-  </div>
-</div>
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>使用者登入</title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: #f5f7fa;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      padding: 0 20px;
+      color: #333;
+    }
+    .login-container {
+      background: #fff;
+      padding: 30px 40px;
+      border-radius: 10px;
+      box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+      width: 100%;
+      max-width: 360px;
+      text-align: center;
+    }
+    h2 {
+      margin-bottom: 24px;
+      font-weight: 600;
+      color: #222;
+    }
+    form {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 500;
+      text-align: left;
+      color: #555;
+    }
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid #ccc;
+      border-radius: 6px;
+      font-size: 14px;
+      transition: border-color 0.3s;
+    }
+    input[type="text"]:focus,
+    input[type="password"]:focus {
+      outline: none;
+      border-color: #0078d4;
+      box-shadow: 0 0 6px #0078d4aa;
+    }
+    button {
+      margin-top: 12px;
+      padding: 12px 0;
+      background-color: #0078d4;
+      border: none;
+      border-radius: 6px;
+      color: white;
+      font-weight: 600;
+      font-size: 16px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    button:hover {
+      background-color: #005fa3;
+    }
+    .error-message {
+      color: #d93025;
+      font-weight: 600;
+      margin-bottom: 12px;
+      text-align: left;
+      font-size: 14px;
+    }
+    @media (max-width: 320px) {
+      body {
+        padding: 0 10px;
+      }
+      .login-container {
+        padding: 20px 20px;
+      }
+      button {
+        font-size: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+    <div class="login-container">
+        <h2>帳號密碼登入</h2>
+        {% if error %}
+            <p class="error-message">{{ error }}</p>
+        {% endif %}
+        <form method="POST" action="/login_redirect" id="login_form">
+            <label for="name">使用者姓名：</label>
+            <input type="text" id="name" name="name" autocomplete="name" required />
+            <label for="username">帳號：</label>
+            <input type="text" id="username" name="username" autocomplete="username" required />
+            <label for="password">密碼：</label>
+            <input type="password" id="password" name="password" autocomplete="current-password" required />
+            <button type="submit">登入</button>
+            <img src="data:image/png;base64,{{ qr }}" alt="QR Code">
+        </form>
 
-<!-- Loading Modal -->
-<div class="modal fade" id="loadingModal" tabindex="-1" aria-labelledby="loadingModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
-  <div class="modal-dialog modal-dialog-centered">
-    <div class="modal-content text-center">
-      <div class="modal-body">
-        <div class="spinner-border text-primary mb-3" role="status" style="width: 3rem; height: 3rem;">
-          <span class="visually-hidden">Loading...</span>
+        <div class="footer">
+            <a href="#" style="text-decoration:none; font-weight:800; color:#3aa3d1">Mi-tech</a> Copyright © 2019
         </div>
-        <div>模型推論中，請稍候...</div>
-      </div>
     </div>
-  </div>
-</div>
+
+    <div id="modal-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script type="module">
+        import { loadModal, showModal } from "{{ url_for('static', filename='js/modal.js') }}";
+        loadModal("modal-container");
+
+        document.addEventListener("DOMContentLoaded", function () {
+            const session_id = "{{ session_id }}";
+            const login_form = document.getElementById("login_form");
+
+            if (login_form) {
+                login_form.addEventListener("submit", async function(e) {
+                    
+                    e.preventDefault();
+
+                    const formData = new FormData(login_form);
+                    
+                    const res1 = await fetch(`/login_redirect`, {
+                        method: "POST",
+                        body: formData
+                    });
+                    const data1 = await res1.json();
+
+                    console.log(data1);
+
+                    if (data1.status == "failed") {
+                        
+                        if (data1.message == "login failed") {
+                            showModal("登入失敗，請再試一次", () => {
+                                window.location.href = data1.redirect;
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                window.location.href = data1.redirect;
+                                console.log("使用者點擊 Cancel");
+                            });
+                        } else if (data1.message == "user not found") {
+                            showModal("登入無效，請聯絡系統資源管理者授權，再嘗試登入", () => {
+                                window.location.href = data1.redirect;
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                window.location.href = data1.redirect;
+                                console.log("使用者點擊 Cancel");
+                            });
+                        }
+
+                    } else if (data1.status == "success") {
+                        window.location.href = data1.redirect;
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>
