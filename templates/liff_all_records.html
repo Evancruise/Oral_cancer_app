@@ -192,12 +192,12 @@
         <div class="filters">
         <div class="field">
             <label>上傳日期</label>
-            <input class="input" type="text" id="dateRange" placeholder="2024/06/24 - 2024/09/24" />
+            <input class="input" type="text" id="dateRange" placeholder="2024/06/24-2024/09/24" value="{{ today_date }}"/>
         </div>
         <div class="field">
             <label>上傳帳號</label>
             <select id="uploader">
-            <option value="">全部</option>
+            <option value="all">全部</option>
             <option selected>test1</option>
             <option>nurse_a</option>
             <option>doctor_b</option>
@@ -206,18 +206,20 @@
         <div class="field">
             <label>分析狀態</label>
             <select id="status">
-            <option value="">全部</option>
+            <option value="all">全部</option>
             <option value="done">已完成</option>
             <option value="pending">未完成</option>
+            <option value="not_started">未開始</option>
             </select>
         </div>
         <div class="field">
-            <label>分類標籤</label>
-            <select id="tag">
-            <option>全部</option>
-            <option>口腔</option>
-            <option>牙科</option>
-            <option>其他</option>
+            <label>辨識分類結果標籤</label>
+            <select id="category">
+                <option value="all">全部</option>
+                <option value="none"> 健康無病灶</option>
+                <option value="green">綠燈 (輕微等級)</option>
+                <option value="yellow">黃燈 (疑似嚴重等級)</option>
+                <option value="red">紅燈 (嚴重等級)</option>
             </select>
         </div>
         <div class="btn-row">
@@ -282,21 +284,38 @@
         const pageSize = 5;
         let currentPage = 1;
 
+        function isWithinDateRange(dateStr, startStr, endStr) {
+            const date = new Date(dateStr);
+            const start = new Date(startStr);
+            const end = new Date(endStr);
+
+            return date >= start && date <= end;
+        }
+
         function applyFilters(){
+            const daterange = document.getElementById('dateRange').value.trim();
             const uploader = document.getElementById('uploader').value.trim();
             const status = document.getElementById('status').value;
-            // (簡化) 僅示意帳號/狀態篩選，日期字串不解析
-            return rows.filter(r =>
-                (uploader ? r.user === uploader : true) &&
-                (status ? r.status === status : true)
-            );
+            const category = document.getElementById('category').value;
+
+            if (rows.length != 0) {
+                return rows.filter(r =>
+                    (daterange ? isWithinDateRange(r.uploaded.split(' ')[0], daterange.replace(/\//g, "-").split('~')[0].trim(), daterange.replace(/\//g, "-").split('~')[1].trim()) : true) &&
+                    (uploader ? r.user === uploader || uploader === "all" : true) &&
+                    (status ? r.status === status || status === "all" : true) && 
+                    (category ? r.category === category || category === "all" : true)
+                );
+            } else {
+                return rows;
+            }
         }
 
         function renderTable(page=1) {
-            // const data = applyFilters();
+            const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+            const data = applyFilters();
             const start = (page-1)*pageSize, end = start+pageSize;
-            // const pageRows = data.slice(start, end);
-            const pageRows = rows.slice(start, end);
+            const pageRows = data.slice(start, end);
+            // const pageRows = rows.slice(start, end);
             const tbody = document.getElementById('tbody');
             tbody.innerHTML = pageRows.map(r => {
                 const badge = r.status === 'done'
@@ -328,7 +347,6 @@
             }).join('');
 
             // pagination
-            const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
             const pager = document.getElementById('pagination');
             const contentDiv = document.getElementById('content');
 
@@ -336,14 +354,16 @@
             function renderContent() {
               const start = (currentPage - 1) * pageSize;
               const end = start + pageSize;
-              const pageData = users.slice(start, end);
+              const data = applyFilters();
+              const pageData = data.slice(start, end);
 
               contentDiv.innerHTML = "<ul>" + pageData.map(u => "<li>" + u + "</li>").join("") + "</ul>";
             }
 
             // 渲染分頁按鈕
             function renderPagination() {
-              const totalPages = Math.max(1, Math.ceil(users.length / pageSize));
+              const data = applyFilters();
+              const totalPages = Math.max(1, Math.ceil(data.length / pageSize));
               let html_page = '';
 
               for (let i = 1; i <= totalPages; i++) {
@@ -394,11 +414,16 @@
         });
         */
 
+        const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
         const uploader = document.getElementById('uploader');
-        html = "<option value=\"\">全部</option>";
+        const data = applyFilters();
 
-        for (let i = 0; i < totalPages; i++) {
-            html += "<option value=\"" + rows[i].user + "\">" + rows[i].user + "</option>";
+        html = "<option value=\"all\">全部</option>";
+
+        if (rows.length != 0) {
+            for (let i = 0; i < totalPages; i++) {
+                html += "<option value=\"" + rows[i].user + "\">" + rows[i].user + "</option>";
+            }
         }
 
         uploader.innerHTML = html;

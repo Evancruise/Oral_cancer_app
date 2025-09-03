@@ -6,6 +6,7 @@ import base64
 import uuid
 import psutil
 import datetime
+from datetime import date
 import argparse
 import qrcode
 import glob
@@ -1108,7 +1109,10 @@ def all_history():
         row["timestamp"] = ts
         history_list.append(row)
 
-    return render_template("liff_all_records.html", grouped_records=history_list, priority=retrieve_priority(username))
+    today = date.today()
+    today_timestamp = today.strftime("%Y/%m/%d")
+
+    return render_template("liff_all_records.html", grouped_records=history_list, priority=retrieve_priority(username), today_date=today_timestamp + "~" + today_timestamp)
 
 @app.route('/history')
 def history():
