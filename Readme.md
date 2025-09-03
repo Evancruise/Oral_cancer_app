@@ -99,10 +99,10 @@ Included in `inspect_weights.ipynb`.
 
 ### 6) TensorBoard Logging
 Loss curves & checkpoints per epoch.  
-![tensorboard](logs/detection_tensorboard.jpg)
+![tensorboard](display/detection_tensorboard.jpg)
 
 ### 7) Putting It All Together
-![result](predicted_result/000001_00.png)
+![result](display/000001_00_predicted.png)
 
 ### 8) Metrics: Confusion Matrix / PR Curve
 ![cm](current_confusion_matrix.png)
