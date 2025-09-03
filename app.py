@@ -912,6 +912,7 @@ def discard_history():
 @app.route("/record/confirm_add_account", methods=["POST"])
 def confirm_add_account():
     username = request.form.get("f_account")
+    action = request.form.get("action")
     name = request.form.get("f_name")
     password = request.form.get("f_password")
     unit = request.form.get("f_unit")
@@ -945,10 +946,11 @@ def confirm_add_account():
     
     conn.commit()
     conn.close()
-    return jsonify({"status": "ok", "redirect": url_for("all_account")})
+    return jsonify({"status": "ok", "message": action, "redirect": url_for("all_account")})
 
 @app.route("/record/confirm_account", methods=["POST"])
 def confirm_account():
+    action = request.form.get("action")
     username = request.form.get("f_account")
     name = request.form.get("f_name")
     password = request.form.get("f_password")
@@ -964,26 +966,36 @@ def confirm_account():
     cursor.execute("SELECT * FROM users WHERE name=?", (name, ))
     row = cursor.fetchone()
 
-    priority = -1
-    if role == "system manager":
-        priority = 1
-    elif role == "resource manager":
-        priority = 0
-    else:
+    if action == "save":
         priority = -1
+        if role == "system manager":
+            priority = 1
+        elif role == "resource manager":
+            priority = 0
+        else:
+            priority = -1
 
-    if row:
-        cursor.execute("""
-            UPDATE users SET username = ?, password = ?, unit = ?, priority = ?, status = ?, note = ? WHERE name=?
-            """, (username, password, unit, priority, status, note, name,))
-    else:
-        conn.commit()
-        conn.close()
-        return jsonify({"status": "failed"})
+        if row:
+            cursor.execute("""
+                UPDATE users SET username = ?, password = ?, unit = ?, priority = ?, status = ?, note = ? WHERE name=?
+                """, (username, password, unit, priority, status, note, name,))
+        else:
+            conn.commit()
+            conn.close()
+            return jsonify({"status": "failed"})
+    elif action == "delete":
+        cursor.execute("SELECT * FROM users WHERE name=?", (name, ))
+        row = cursor.fetchone()
+
+        if row:
+            cursor.execute("DELETE FROM users WHERE name = ?", (name,))
+        else:
+            conn.close()
+            return jsonify({"status": "failed"})
     
     conn.commit()
     conn.close()
-    return jsonify({"status": "ok", "redirect": url_for("all_account")})
+    return jsonify({"status": "ok", "message": action, "redirect": url_for("all_account")})
 
 @app.route("/all_account")
 def all_account():
@@ -1013,7 +1025,7 @@ def all_account():
             "unit": row["unit"],
             "role": role,
             "status": row["status"] if row["status"] else "deactivated",
-            "note": "test"
+            "note": row["note"]
         }
 
         account_dict[row["create_timestamp"]] = current_table

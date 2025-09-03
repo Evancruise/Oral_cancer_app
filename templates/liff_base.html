@@ -114,10 +114,7 @@
             const add_account_modal = document.getElementById("newAccountModal");
 
             const photo_modal = document.getElementById("PhotoModal");
-
-            const video = photo_modal.querySelector("#video");
-            const canvas = photo_modal.querySelector("#canvas");
-            const ctx = canvas.getContext("2d");
+            
             const result_img = document.getElementById("result_img");
             const captureBtn = document.getElementById("capture");
 
@@ -200,6 +197,9 @@
             }
 
             if (photo_modal) {
+                const video = document.getElementById("video");
+                const canvas = document.getElementById("canvas");            
+                const ctx = canvas.getContext("2d");
 
                 photo_modal.addEventListener("click", async function(e) {
                     if (e.target.id.startsWith("prev")) {
@@ -616,7 +616,7 @@
                 });
             });
 
-            document.querySelectorAll("#account_form button[type=button]").forEach(btn => {
+            document.querySelectorAll("#account_form button[type=submit]").forEach(btn => {
                 btn.addEventListener("click", () => {
                     console.log("account_form tag triggered!");
                     clickedButton = btn;
@@ -1334,46 +1334,43 @@
                 bindImageUploadPreview(parts, edit_form);
             }
 
-            if (add_account_modal) {
-                add_account_modal.addEventListener("submit", async function(e) {
+            if (add_account_form) {
+                add_account_form.addEventListener("submit", async function(e) {
                     e.preventDefault();
 
                     const formData = new FormData(add_account_form);
 
-                    if (add_account_modal) {
+                    try {
+                        const res_add_account = await fetch(`/record/confirm_add_account`, {
+                            method: "POST",
+                            body: formData
+                        });
 
-                        try {
-                            const res_add_account = await fetch(`/record/confirm_add_account`, {
-                                method: "POST",
-                                body: formData
+                        const data_add_account = await res_add_account.json();
+                        console.log("data:", data_add_account);
+
+                        if (!data_add_account || !data_add_account.status) {
+                            throw new Error("回傳格式錯誤");
+                            return;
+                        }
+
+                        if (data_add_account.status === "ok") {
+                            showModal("新增設定成功", () => {
+                                console.log("使用者點擊 OK");
+                                window.location.href = data_add_account.redirect;
+                            }, () => {
+                                console.log("使用者點擊 Cancel");
                             });
-
-                            const data_add_account = await res_add_account.json();
-                            console.log("data:", data_add_account);
-
-                            if (!data_add_account || !data_add_account.status) {
-                                throw new Error("回傳格式錯誤");
-                                return;
-                            }
-
-                            if (data_add_account.status === "ok") {
-                                showModal("新增設定成功", () => {
-                                    console.log("使用者點擊 OK");
-                                    window.location.href = data_add_account.redirect;
-                                }, () => {
-                                    console.log("使用者點擊 Cancel");
-                                });
-                            } else {
-                                showModal("使用者請求遭拒，請再試一次", () => {
-                                    console.log("使用者點擊 OK");
-                                }, () => {
-                                    console.log("使用者點擊 Cancel");
-                                });
-                            }
+                        } else {
+                            showModal("使用者請求遭拒，請再試一次", () => {
+                                console.log("使用者點擊 OK");
+                            }, () => {
+                                console.log("使用者點擊 Cancel");
+                            });
                         }
-                        catch (err) {
-                            console.log("發生錯誤");
-                        }
+                    }
+                    catch (err) {
+                        console.log("發生錯誤");
                     }
                 });
             }
@@ -1383,6 +1380,10 @@
                     e.preventDefault();
 
                     const formData = new FormData(account_form);
+
+                    if (clickedButton && clickedButton.name) {
+                        formData.append(clickedButton.name, clickedButton.value);
+                    }
 
                     if (account_modal) {
 
@@ -1405,12 +1406,22 @@
                                 }
 
                                 if (data_account.status === "ok") {
-                                    showModal("修改設定成功", () => {
-                                        console.log("使用者點擊 OK");
-                                        window.location.href = data_account.redirect;
-                                    }, () => {
-                                        console.log("使用者點擊 Cancel");
-                                    });
+                                    if (data_account.message == "delete") {
+                                        showModal("刪除設定成功", () => {
+                                            console.log("使用者點擊 OK");
+                                            window.location.href = data_account.redirect;
+                                        }, () => {
+                                            console.log("使用者點擊 Cancel");
+                                        });
+                                    }
+                                    else if (data_account.message == "save") {
+                                        showModal("修改設定成功", () => {
+                                            console.log("使用者點擊 OK");
+                                            window.location.href = data_account.redirect;
+                                        }, () => {
+                                            console.log("使用者點擊 Cancel");
+                                        });
+                                    }
                                 } else {
                                     showModal("使用者請求遭拒，請再試一次", () => {
                                         console.log("使用者點擊 OK");

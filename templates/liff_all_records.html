@@ -221,7 +221,7 @@
             </select>
         </div>
         <div class="btn-row">
-            <button class="btn btn-secondary" id="btn-clean">清除</button>
+            <!-- <button class="btn btn-secondary" id="btn-clean">清除</button> -->
             <button class="btn btn-warning">匯入</button>
             <button class="btn btn-primary" id="btn-search">查詢</button>
             <button class="btn btn-danger">儲存</button>
@@ -330,34 +330,81 @@
             // pagination
             const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
             const pager = document.getElementById('pagination');
-            const mkBtn = (label, pageNum, active=false, disabled=false) =>
-                `<button class="pager ${active?'active':''}" ${disabled?'disabled':''} data-page="${pageNum}">${label}</button>`;
-            let html = '';
-            html += mkBtn('«', Math.max(1, page-1), false, page===1);
-            for(let i=1;i<=totalPages;i++){
-                html += mkBtn(i, i, i===page);
-            }
-            html += mkBtn('»', Math.min(totalPages, page+1), false, page===totalPages);
-            pager.innerHTML = html;
+            const contentDiv = document.getElementById('content');
 
-            pager.querySelectorAll('.pager').forEach(btn=>{
-                btn.addEventListener('click', e=>{
-                const p = Number(e.currentTarget.getAttribute('data-page'));
-                currentPage = p;
-                renderTable(p);
+            // 渲染內容
+            function renderContent() {
+              const start = (currentPage - 1) * pageSize;
+              const end = start + pageSize;
+              const pageData = users.slice(start, end);
+
+              contentDiv.innerHTML = "<ul>" + pageData.map(u => "<li>" + u + "</li>").join("") + "</ul>";
+            }
+
+            // 渲染分頁按鈕
+            function renderPagination() {
+              const totalPages = Math.max(1, Math.ceil(users.length / pageSize));
+              let html_page = '';
+
+              for (let i = 1; i <= totalPages; i++) {
+                html_page += `<button class="pager ${i === currentPage ? 'active' : ''}" data-page="${i}">${i}</button>`;
+              }
+
+              let html = `
+                <div class="pagination">
+                  <button class="pager prev ${currentPage === 1 ? 'disabled' : ''}">Prev</button>
+                  ${html_page}
+                  <button class="pager next ${currentPage === totalPages ? 'disabled' : ''}">Next</button>
+                </div>
+              `;
+
+              pager.innerHTML = html;
+
+              // 綁定事件
+              pager.querySelectorAll(".pager").forEach(btn => {
+                btn.addEventListener("click", () => {
+                  const page = btn.dataset.page;
+                  if (page) {
+                    currentPage = parseInt(page);
+                    update();
+                  } else if (btn.classList.contains("prev") && currentPage > 1) {
+                    currentPage--;
+                    update();
+                  } else if (btn.classList.contains("next") && currentPage < totalPages) {
+                    currentPage++;
+                    update();
+                  }
                 });
-            });
+              });
+            }
+        }
+
+        function update() {
+            renderContent();
+            renderPagination();
         }
 
         document.getElementById('btn-search').addEventListener('click', ()=>renderTable(1));
+        /*
         document.getElementById('btn-clean').addEventListener('click', ()=>{
             document.getElementById('uploader').value = '';
             document.getElementById('status').value = '';
             document.getElementById('dateRange').value = '';
             renderTable(1);
         });
+        */
+
+        const uploader = document.getElementById('uploader');
+        html = "<option value=\"\">全部</option>";
+
+        for (let i = 0; i < totalPages; i++) {
+            html += "<option value=\"" + rows[i].user + "\">" + rows[i].user + "</option>";
+        }
+
+        uploader.innerHTML = html;
 
         // fake tab switching (僅示意)
+        /*
         document.getElementById('tab-upload').addEventListener('click', ()=>{
             document.getElementById('tab-upload').classList.add('active');
             document.getElementById('tab-target').classList.remove('active');
@@ -366,6 +413,7 @@
             document.getElementById('tab-target').classList.add('active');
             document.getElementById('tab-upload').classList.remove('active');
         });
+        */
 
         renderTable(currentPage);
     </script>
