@@ -1044,7 +1044,7 @@ def all_account():
 
 def datetime_convert(stimestamp):
     dt_naive = datetime.datetime.strptime(stimestamp, "%Y-%m-%d %H:%M:%S")
-    dt_utc = dt_naive.replace(tzinfo=ZoneInfo("UTC"))
+    dt_utc = dt_naive.replace(tzinfo=ZoneInfo("Asia/Taipei"))
     dt = dt_utc.astimezone(ZoneInfo(TIMEZONE))
 
     datetime_str = dt.strftime("%Y-%m-%d")  # 精準到秒
@@ -1079,10 +1079,6 @@ def all_history():
 
     username = session["username"]
     for row in rows:
-
-        start_date_display = datetime_convert(row['start_timestamp'])
-        last_date_display = datetime_convert(row['last_timestamp'])
-
         current_table = {
             'created': row['start_timestamp'],
             'case': row['patient_id'],
