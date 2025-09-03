@@ -867,8 +867,8 @@ def discard_history():
 
     grouped = defaultdict(list)
     for row in rows:
-        start_date_display = datetime_convert(row['start_timestamp'])
-        last_date_display = datetime_convert(row['last_timestamp'])
+        start_date_display = datetime_convert(row['start_timestamp'], "sec")
+        last_date_display = datetime_convert(row['last_timestamp'], "date")
 
         current_table = {
             'name': session['name'],
@@ -1042,14 +1042,12 @@ def all_account():
 
     return render_template("liff_account_manage.html", all_account_dict=account_list, priority=retrieve_priority(username))
 
-def datetime_convert(stimestamp):
+def datetime_convert(stimestamp, display_style="date"):
     dt_naive = datetime.datetime.strptime(stimestamp, "%Y-%m-%d %H:%M:%S")
     dt_utc = dt_naive.replace(tzinfo=ZoneInfo("Asia/Taipei"))
     dt = dt_utc.astimezone(ZoneInfo(TIMEZONE))
 
-    datetime_str = dt.strftime("%Y-%m-%d")  # 精準到秒
     weekday_str = dt.strftime("%A")
-
     weekday_map = {
         'Monday': '一',
         'Tuesday': '二',
@@ -1059,9 +1057,16 @@ def datetime_convert(stimestamp):
         'Saturday': '六',
         'Sunday': '日',
     }
-
     chinese_weekday = weekday_map.get(weekday_str, '')
-    date_display = f"{datetime_str}（{chinese_weekday}）"
+
+    if display_style == "date":
+        datetime_str = dt.strftime("%Y-%m-%d")  # 精準到秒
+        date_display = f"{datetime_str}（{chinese_weekday}）"
+    elif display_style == "sec":
+        datetime_str_prefix = dt.strftime("%Y-%m-%d")
+        datetime_str_suffix = dt.strftime("%H:%M:%S")
+        date_display = f"{datetime_str_prefix}（{chinese_weekday}）{datetime_str_suffix}"
+
     return date_display
 
 @app.route('/all_history')
@@ -1125,8 +1130,8 @@ def history():
 
     grouped = defaultdict(list)
     for row in rows:
-        start_date_display = datetime_convert(row['start_timestamp'])
-        last_date_display = datetime_convert(row['last_timestamp'])
+        start_date_display = datetime_convert(row['start_timestamp'], "sec")
+        last_date_display = datetime_convert(row['last_timestamp'], "date")
 
         print("row[\"img1\"]:", row['img1'])
         print("row[\"img2\"]:", row['img2'])
