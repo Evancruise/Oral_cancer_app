@@ -1,6 +1,7 @@
 import os
 import io
 import cv2
+import pandas as pd
 from PIL import Image
 import base64
 import uuid
@@ -88,6 +89,8 @@ UPLOAD_DIR = "static/uploads"
 RESULT_DIR = "static/results"
 MODEL_DIR = "model_archive\checkpoints"
 ANNOT_DIR = "model/dataset/all/annotations_json"
+
+new_patient_id = "0001"
 
 os.makedirs(ANNOT_DIR, exist_ok=True)
 
@@ -1069,6 +1072,48 @@ def datetime_convert(stimestamp, display_style="date"):
 
     return date_display
 
+@app.route('/export_data', methods=['POST'])
+def export_history():
+
+    action = request.form.get("action")
+
+    if action == "export":
+
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM records ORDER BY last_timestamp ASC")
+        rows = cursor.fetchall()
+        history_dict = []
+
+        for row in rows:
+            current_table = {
+                "影像案例編號": row['patient_id'],
+                "建立日期": row['start_timestamp'],
+                "影像數": 1,
+                "上傳日期": row['last_timestamp'],
+                "上傳人員": row['name'],
+                "分析狀態": row['status'],
+                "備註": row['notes'],
+            }
+            history_dict.append(current_table)
+
+        df = pd.DataFrame(history_dict)
+
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+            df.to_excel(writer, index=False, sheet_name="資料匯出")
+        output.seek(0)
+
+        # 回傳下載 excel 檔案
+        return send_file(output,
+                        as_attachment=True,
+                        download_name="export_users_data.xlsx",
+                        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    else:
+        return "Not export action"
+
 @app.route('/all_history')
 def all_history():
     
@@ -1085,8 +1130,8 @@ def all_history():
     username = session["username"]
     for row in rows:
         current_table = {
-            'created': row['start_timestamp'],
             'case': row['patient_id'],
+            'created': row['start_timestamp'],
             'uploaded': row['last_timestamp'],
             'user': row['name'],
             'status': row['status'],
@@ -1265,9 +1310,23 @@ def qr_login(session_id):
 
     return redirect(url_for("/login"))
 
-@app.route("/uploads/<user_id>/<filename>")
-def get_uploaded_file(user_id, filename):
-    folder = os.path.join(app.root_path, 'static/uploads', user_id)
+@app.route("/upload_file", methods=["POST"])
+def upload_file():
+    file = request.files.get("file")
+    if not file:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    folder = os.path.join(app.root_path, "static/uploads", new_patient_id)
+    os.makedirs(folder, exist_ok=True)
+
+    save_path = os.path.join(folder, file.filename)
+    file.save(save_path)
+
+    return jsonify({"url": f"/uploads/{new_patient_id}/{file.filename}"})
+
+@app.route("/uploads/<patient_id>/<filename>")
+def get_uploaded_file(patient_id, filename):
+    folder = os.path.join(app.root_path, "static/uploads", patient_id)
     return send_from_directory(folder, filename)
 
 @app.route('/dashboard')
@@ -1588,7 +1647,7 @@ def main():
     args = parser.parse_args()
     
     if args.init_db:
-        init_db()
+        init_db(DB_PATH)
 
     args.port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=args.port)

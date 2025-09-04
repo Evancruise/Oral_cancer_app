@@ -180,6 +180,17 @@ export function bindImageUploadPreview(parts, scope = document, scope_name = nul
                 const file = e.target.files[0];
                 if (file) {
                     console.log(`選取檔案: ${file.name}`);
+                    const formData = new FormData();
+                    formData.append("file", file);
+
+                    const res = await fetch("/upload_file", {
+                        method: "POST",
+                        body: formData
+                    });
+                    const data = await res.json();
+
+                    previewImg.src = data.url; // 後端回傳的 URL
+                    selectBtn.innerHTML = "已上傳";
                 } else {
                     console.log("沒有選擇檔案");
                 }

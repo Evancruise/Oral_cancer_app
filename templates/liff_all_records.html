@@ -225,8 +225,8 @@
         </div>
         <div class="btn-row">
             <!-- <button class="btn btn-secondary" id="btn-clean">清除</button> -->
-            <button class="btn btn-warning"> 匯入 </button>
-            <button class="btn btn-primary" id="btn-search">查詢</button>
+            <button type="button" class="btn btn-warning"> 匯入 </button>
+            <button type="button" class="btn btn-primary" id="btn-search">查詢</button>
             <button type="submit" id="export_data" name="action" value="export" class="btn btn-danger"> 匯出 </button>
         </div>
         </div>
@@ -244,8 +244,8 @@
         <table id="dataTable" aria-label="上傳紀錄表格">
             <thead>
             <tr>
-                <th style="width:16%">建立日期</th>
                 <th style="width:16%">影像案例編號</th>
+                <th style="width:16%">建立日期</th>
                 <th style="width:10%">影像數</th>
                 <th style="width:17%">上傳日期</th>
                 <th style="width:12%">上傳人員</th>
@@ -260,7 +260,7 @@
         <div class="pagination" id="pagination"></div>
         </div>
       </div>
-    <form>
+    </form>
 
     <div class="footer">
         <a href="#" style="text-decoration:none; font-weight:800; color:#3aa3d1">Mi-tech</a> Copyright © 2019
@@ -325,8 +325,8 @@
                 : '<span class="badge gray">未完成</span>';
                 return `
                 <tr>
-                    <td data-th="建立日期">${r.created}</td>
                     <td data-th="影像案例編號">${r.case}</td>
+                    <td data-th="建立日期">${r.created}</td>                    
                     <td data-th="影像數">${r.count}</td>
                     <td data-th="上傳日期">${r.uploaded}</td>
                     <td data-th="上傳人員">${r.user}</td>
