@@ -395,7 +395,7 @@ GCP_SA_KEY → 你的 GCP service account JSON 金鑰內容（整份貼進去）
 > Name: github-actions-deployer（名字可自訂）
 > ID 會自動生成，記住這個（格式會像 github-actions-deployer@your-project-id.iam.gserviceaccount.com, i.e., github-actions-deployer@oral-cancer-ai.iam.gserviceaccount.com）
 
-> [2-1] CI/CD script (在 github上可以放到這個路徑下: .github/workflows/deploy.yml)
+> [2-1] CI/CD script
 ```yaml
 name: CI/CD
 
@@ -482,28 +482,14 @@ gcloud iam service-accounts list --project oral-cancer-ai --format="table(displa
 
 > 4) 產生 JSON Key
 
->   建立完成 Service Account 後，在列表點選它 → Keys 分頁
+> 5) 授權訪問權限
 
->   點 Add Key → Create new key
-
->   選 JSON → 它會下載一個 key.json 檔案到你的電腦
-
-> 5) 放到 GitHub Secrets
-
->   到 GitHub repo → Settings → Secrets and variables → Actions → New repository secret
-
->     Name: GCP_SA_KEY
-
->     Value: 貼上剛剛的 JSON
-
-> 6) 授權訪問權限
-
->   [6-1] 利用自己帳號
+>   [5-1] 利用自己帳號
 ```bash
 gcloud auth login
 ```
 
->   [6-2] 利用 Service Account - 用金鑰登入 GCP
+>   [5-2] 利用 Service Account - 用金鑰登入 GCP
 ```bash
 gcloud auth activate-service-account \
  github-actions-deployer@oral-cancer-ai.iam.gserviceaccount.com \
@@ -511,7 +497,7 @@ gcloud auth activate-service-account \
  --project=oral-cancer-ai
 ```
 
-> 7) 設定 Artifact Registry 認證 (這樣 docker build/push 才會生效)
+> 7) 設定 Artifact Registry 認證
 ```bash
 gcloud auth configure-docker asia-east1-docker.pkg.dev
 ```
@@ -533,7 +519,7 @@ python tools/deploy/convert-to-onnx.py \
 
 > 2. TensorRT 優化 (Jetson Nano 上執行)
 ```bash
-# 安裝 TensorRT (Nano 已內建)
+# 安裝 TensorRT
 sudo apt-get install python3-pip libnvinfer-dev libnvinfer-bin
 
 # 將 ONNX 轉 TensorRT engine
