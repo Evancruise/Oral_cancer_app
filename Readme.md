@@ -162,8 +162,6 @@ gcloud storage ls gs://model-bucket-20250820/models/
 ```
 
 ### [2] 建立 Docker 映像
-> 你可以用 **Option A: Google Cloud Build** 或 **Option B: 本地 Docker**。
-
 **Option A — Cloud Build → GCR**
 ```bash
 gcloud config set project YOUR_PROJECT_ID
@@ -386,15 +384,7 @@ kubectl apply -f deployment.yaml --namespace=production
 project_id: ${{ secrets.GCP_PROJECT_ID }}
 service_account_key: ${{ secrets.GCP_SA_KEY }}
 ```
-> 2) 進入GitHub repo → Settings → Secrets and variables → Actions → New repository secret (建立以下secret keys)
-GCP_PROJECT_ID → 你的 GCP 專案 ID，例如： oral-flask-ai-app-20250820
-GCP_SA_KEY → 你的 GCP service account JSON 金鑰內容（整份貼進去）。
-> 建立json方式: 
-> [1] 在左側選單 → 找到 IAM & Admin → Service Accounts
-> [2] 點 + Create Service Account
-> Name: github-actions-deployer（名字可自訂）
-> ID 會自動生成，記住這個（格式會像 github-actions-deployer@your-project-id.iam.gserviceaccount.com, i.e., github-actions-deployer@oral-cancer-ai.iam.gserviceaccount.com）
-
+> 2) Github Actions
 > [2-1] CI/CD script
 ```yaml
 name: CI/CD
@@ -431,7 +421,7 @@ jobs:
             ${{ secrets.DOCKER_USER }}/rag-ai-api:${{ github.sha }}
           namespace: staging
 ```
-> [2-2] 用指令建立 Service Account
+> [2-2] 建立 Service Account
 ```bash
 gcloud iam service-accounts create github-actions-deployer \
  --display-name="GitHub Actions Deployer" \
